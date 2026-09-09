@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MD JIBON 99% Screen Scanner</string>
+    <string name="floating_scanner">Floating Scanner</string>
+    <string name="enable_overlay">Enable Floating Scanner</string>
+    <string name="enable_capture">Enable Screen Capture</string>
+    <string name="scanning">Scanning...</string>
+    <string name="result_call">CALL - উপরে যাবে</string>
+    <string name="result_put">PUT - নিচে যাবে</string>
+    <string name="result_wait">WAIT - অনিশ্চিত</string>
+</resources>
