@@ -4,15 +4,20 @@ workflows:
     max_build_duration: 30
 
     environment:
-      groups:
-        - google_play
       java: 17
 
     scripts:
+      - name: Install Gradle 8.7
+        script: |
+          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip
+          unzip -q gradle-8.7-bin.zip -d $HOME/gradle
+          export PATH="$HOME/gradle/gradle-8.7/bin:$PATH"
+          gradle --version
+
       - name: Build Debug APK
         script: |
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          export PATH="$HOME/gradle/gradle-8.7/bin:$PATH"
+          gradle assembleDebug
 
     artifacts:
       - app/build/outputs/apk/debug/*.apk
