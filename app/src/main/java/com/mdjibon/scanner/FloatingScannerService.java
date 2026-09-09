@@ -1,0 +1,10 @@
+package com.mdjibon.scanner;
+
+import android.app.*;import android.content.*;import android.graphics.Color;import android.graphics.PixelFormat;import android.os.*;import android.view.*;import android.widget.*;
+public class FloatingScannerService extends Service{
+ WindowManager wm; TextView bubble; int type; BroadcastReceiver receiver;
+ public IBinder onBind(Intent i){return null;}
+ public int onStartCommand(Intent i,int f,int id){show(); if(receiver==null){receiver=new BroadcastReceiver(){public void onReceive(Context c,Intent x){String sig=x.getStringExtra("signal");int conf=x.getIntExtra("confidence",0);bubble.setText(sig+"\n"+conf+"%");bubble.setTextSize(14);}};if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver,new IntentFilter("MDJIBON_SCAN_RESULT"), Context.RECEIVER_NOT_EXPORTED); else registerReceiver(receiver,new IntentFilter("MDJIBON_SCAN_RESULT"));} return START_STICKY;}
+ void show(){if(bubble!=null)return;wm=(WindowManager)getSystemService(WINDOW_SERVICE);TextView b=new TextView(this);b.setText("⚡");b.setTextSize(22);b.setGravity(17);b.setTextColor(Color.WHITE);b.setBackgroundColor(Color.rgb(0,180,90));bubble=b;type=Build.VERSION.SDK_INT>=26?WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY:WindowManager.LayoutParams.TYPE_PHONE;WindowManager.LayoutParams p=new WindowManager.LayoutParams(58,58,type,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);p.gravity=Gravity.RIGHT|Gravity.CENTER_VERTICAL;p.x=14;p.y=0;b.setOnClickListener(v->{Intent s=new Intent(this,ScreenCaptureService.class);s.setAction("SCAN_NOW");startService(s);Toast.makeText(this,"স্ক্রিন স্ক্যান হচ্ছে…",Toast.LENGTH_SHORT).show();});wm.addView(b,p);}
+ public void onDestroy(){if(receiver!=null)unregisterReceiver(receiver);if(bubble!=null)wm.removeView(bubble);super.onDestroy();}
+}
