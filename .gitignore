@@ -1,0 +1,64 @@
+# Gradle files
+.gradle/
+build/
+*.apk
+*.ap_
+*.dex
+*.class
+*.jar
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+
+# Gradle wrapper
+gradle-wrapper.jar
+.gradle
+
+# Build output
+/build
+/app/build
+
+# NDK
+obj/
+
+# Misc
+*.log
+.classpath
+.project
+.settings/
+bin/
+.vscode/
+.env
+*.keystore
+*.jks
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Codemagic
+codemagic.yaml.bak
