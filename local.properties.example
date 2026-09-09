@@ -1,0 +1,8 @@
+# This file is intentionally gitignored.
+# Copy this file to local.properties and update the SDK path for your machine.
+# Example:
+# sdk.dir=/Users/username/Library/Android/sdk
+# For Linux: /home/username/Android/Sdk
+# For Windows: C:\\Users\\username\\AppData\\Local\\Android\\Sdk
+
+sdk.dir=YOUR_SDK_PATH_HERE
