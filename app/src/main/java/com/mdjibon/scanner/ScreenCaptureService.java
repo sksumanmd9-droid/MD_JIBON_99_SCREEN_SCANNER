@@ -4,10 +4,11 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
-import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
@@ -15,14 +16,14 @@ import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
-import android.view.Display;
-import android.view.WindowManager;
-import android.hardware.display.DisplayManager;
-import android.hardware.display.VirtualDisplay;
+import android.os.Looper;
+
+import androidx.core.app.NotificationCompat;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 public class ScreenCaptureService extends Service {
@@ -30,39 +31,38 @@ public class ScreenCaptureService extends Service {
     public static final String ACTION_RESULT =
             "MDJIBON_SCAN_RESULT";
 
-    public static final String ACTION_UI =
-            "MDJIBON_SCAN_UI";
+    public static final String ACTION_PROGRESS =
+            "MDJIBON_SCAN_PROGRESS";
 
-    private static final String CHANNEL_ID =
-            "mdjibon_scanner_channel";
+    private static final String CHANNEL =
+            "MDJIBON_CAPTURE";
 
-    private static final int NOTIFICATION_ID =
-            9911;
-
-    private static boolean captureActive =
-            false;
-
-    private MediaProjection projection;
+    private static MediaProjection projection;
 
     private VirtualDisplay virtualDisplay;
 
     private ImageReader imageReader;
 
-    private Bitmap latestFrame;
+    private Bitmap latestBitmap;
 
-    private final Handler handler =
-            new Handler();
+    private Handler handler =
+            new Handler(Looper.getMainLooper());
 
-    private final Object frameLock =
-            new Object();
+    private boolean scanning = false;
 
-    public static boolean isCaptureActive() {
-        return captureActive;
-    }
+    private int screenWidth;
+
+    private int screenHeight;
+
+    private int screenDensity;
 
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    public static boolean isCaptureRunning() {
+        return projection != null;
     }
 
     @Override
@@ -72,90 +72,18 @@ public class ScreenCaptureService extends Service {
 
         createNotificationChannel();
 
-        Notification notification =
-                buildNotification();
+        android.util.DisplayMetrics dm =
+                getResources()
+                        .getDisplayMetrics();
 
-        if (Build.VERSION.SDK_INT >= 29) {
+        screenWidth =
+                dm.widthPixels;
 
-            startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    android.content.pm.ServiceInfo
-                            .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            );
+        screenHeight =
+                dm.heightPixels;
 
-        } else {
-
-            startForeground(
-                    NOTIFICATION_ID,
-                    notification
-            );
-        }
-    }
-
-    private void createNotificationChannel() {
-
-        if (Build.VERSION.SDK_INT >= 26) {
-
-            NotificationChannel channel =
-                    new NotificationChannel(
-                            CHANNEL_ID,
-                            "MD JIBON Screen Scanner",
-                            NotificationManager
-                                    .IMPORTANCE_LOW
-                    );
-
-            channel.setDescription(
-                    "Screen scanner is running"
-            );
-
-            NotificationManager nm =
-                    (NotificationManager)
-                            getSystemService(
-                                    NOTIFICATION_SERVICE
-                            );
-
-            nm.createNotificationChannel(
-                    channel
-            );
-        }
-    }
-
-    private Notification buildNotification() {
-
-        if (Build.VERSION.SDK_INT >= 26) {
-
-            return new Notification.Builder(
-                    this,
-                    CHANNEL_ID
-            )
-                    .setContentTitle(
-                            "MD JIBON Scanner"
-                    )
-                    .setContentText(
-                            "Screen scanner active"
-                    )
-                    .setSmallIcon(
-                            android.R.drawable.ic_menu_search
-                    )
-                    .setOngoing(true)
-                    .build();
-
-        } else {
-
-            return new Notification.Builder(this)
-                    .setContentTitle(
-                            "MD JIBON Scanner"
-                    )
-                    .setContentText(
-                            "Screen scanner active"
-                    )
-                    .setSmallIcon(
-                            android.R.drawable.ic_menu_search
-                    )
-                    .setOngoing(true)
-                    .build();
-        }
+        screenDensity =
+                dm.densityDpi;
     }
 
     @Override
@@ -165,48 +93,89 @@ public class ScreenCaptureService extends Service {
             int startId
     ) {
 
-        if (intent == null) {
+        if (intent == null)
             return START_NOT_STICKY;
-        }
 
-        if ("SCAN_NOW".equals(
-                intent.getAction()
-        )) {
+        if ("SCAN_NOW".equals(intent.getAction())) {
 
             scanNow();
 
             return START_NOT_STICKY;
         }
 
-        int code =
-                intent.getIntExtra(
-                        "code",
-                        -1
-                );
+        if (
+                intent.hasExtra("code") &&
+                intent.hasExtra("data")
+        ) {
 
-        Intent data =
-                intent.getParcelableExtra(
-                        "data"
-                );
+            int code =
+                    intent.getIntExtra(
+                            "code",
+                            -1
+                    );
 
-        if (code != -1 && data != null) {
+            Intent data =
+                    intent.getParcelableExtra(
+                            "data"
+                    );
 
-            startProjection(
+            if (
+                    code == -1 ||
+                    data == null
+            ) {
+
+                return START_NOT_STICKY;
+            }
+
+            startCapture(
                     code,
                     data
             );
         }
 
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
-    private void startProjection(
+    private void startCapture(
             int resultCode,
             Intent data
     ) {
 
-        if (captureActive) {
+        if (projection != null)
             return;
+
+        Notification notification =
+                new NotificationCompat.Builder(
+                        this,
+                        CHANNEL
+                )
+                        .setContentTitle(
+                                "MD JIBON Screen Scanner"
+                        )
+                        .setContentText(
+                                "Screen Capture active"
+                        )
+                        .setSmallIcon(
+                                android.R.drawable.ic_menu_view
+                        )
+                        .setOngoing(true)
+                        .build();
+
+        if (Build.VERSION.SDK_INT >= 29) {
+
+            startForeground(
+                    8001,
+                    notification,
+                    android.content.pm.ServiceInfo
+                            .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            );
+
+        } else {
+
+            startForeground(
+                    8001,
+                    notification
+            );
         }
 
         MediaProjectionManager manager =
@@ -221,12 +190,8 @@ public class ScreenCaptureService extends Service {
                         data
                 );
 
-        if (projection == null) {
-            sendError(
-                    "MediaProjection পাওয়া যায়নি"
-            );
+        if (projection == null)
             return;
-        }
 
         projection.registerCallback(
                 new MediaProjection.Callback() {
@@ -234,125 +199,97 @@ public class ScreenCaptureService extends Service {
                     @Override
                     public void onStop() {
 
-                        captureActive = false;
+                        stopCapture();
 
-                        synchronized (frameLock) {
-
-                            if (latestFrame != null) {
-
-                                latestFrame.recycle();
-                                latestFrame = null;
-                            }
-                        }
-
-                        releaseDisplay();
+                        super.onStop();
                     }
                 },
                 handler
         );
 
-        WindowManager wm =
-                (WindowManager)
-                        getSystemService(
-                                WINDOW_SERVICE
-                        );
+        createReader();
+    }
 
-        Display display =
-                wm.getDefaultDisplay();
-
-        android.util.DisplayMetrics metrics =
-                new android.util.DisplayMetrics();
-
-        display.getRealMetrics(metrics);
-
-        int width =
-                metrics.widthPixels;
-
-        int height =
-                metrics.heightPixels;
-
-        int density =
-                metrics.densityDpi;
+    private void createReader() {
 
         imageReader =
                 ImageReader.newInstance(
-                        width,
-                        height,
-                        android.graphics.PixelFormat
-                                .RGBA_8888,
+                        screenWidth,
+                        screenHeight,
+                        android.graphics.PixelFormat.RGBA_8888,
                         2
                 );
 
         imageReader.setOnImageAvailableListener(
                 reader -> {
 
-                    Image image =
-                            null;
+                    Image image = null;
 
                     try {
 
                         image =
                                 reader.acquireLatestImage();
 
-                        if (image == null) {
+                        if (image == null)
                             return;
-                        }
 
                         Image.Plane[] planes =
                                 image.getPlanes();
 
-                        if (planes.length == 0) {
+                        if (
+                                planes == null ||
+                                planes.length == 0
+                        )
                             return;
-                        }
 
                         ByteBuffer buffer =
                                 planes[0].getBuffer();
 
                         int pixelStride =
-                                planes[0].getPixelStride();
+                                planes[0]
+                                        .getPixelStride();
 
                         int rowStride =
-                                planes[0].getRowStride();
+                                planes[0]
+                                        .getRowStride();
 
                         int rowPadding =
                                 rowStride -
-                                pixelStride * width;
+                                        pixelStride *
+                                                screenWidth;
+
+                        int bitmapWidth =
+                                screenWidth +
+                                        rowPadding /
+                                                pixelStride;
 
                         Bitmap bitmap =
                                 Bitmap.createBitmap(
-                                        width +
-                                                rowPadding /
-                                                        pixelStride,
-                                        height,
-                                        Bitmap.Config.ARGB_8888
+                                        bitmapWidth,
+                                        screenHeight,
+                                        Bitmap.Config
+                                                .ARGB_8888
                                 );
-
-                        buffer.rewind();
 
                         bitmap.copyPixelsFromBuffer(
                                 buffer
                         );
 
-                        Bitmap cropped =
+                        if (latestBitmap != null) {
+
+                            latestBitmap.recycle();
+                        }
+
+                        latestBitmap =
                                 Bitmap.createBitmap(
                                         bitmap,
                                         0,
                                         0,
-                                        width,
-                                        height
+                                        screenWidth,
+                                        screenHeight
                                 );
 
                         bitmap.recycle();
-
-                        synchronized (frameLock) {
-
-                            if (latestFrame != null) {
-                                latestFrame.recycle();
-                            }
-
-                            latestFrame =
-                                    cropped;
-                        }
 
                     } catch (Exception ignored) {
 
@@ -362,7 +299,6 @@ public class ScreenCaptureService extends Service {
                             image.close();
                         }
                     }
-
                 },
                 handler
         );
@@ -370,246 +306,1320 @@ public class ScreenCaptureService extends Service {
         virtualDisplay =
                 projection.createVirtualDisplay(
                         "MDJIBON_SCANNER",
-                        width,
-                        height,
-                        density,
+                        screenWidth,
+                        screenHeight,
+                        screenDensity,
                         DisplayManager
                                 .VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                         imageReader.getSurface(),
                         null,
                         handler
                 );
-
-        captureActive = true;
-
-        sendUI(
-                "READY",
-                100
-        );
     }
 
     private void scanNow() {
 
-        if (!captureActive) {
+        if (scanning)
+            return;
 
-            sendError(
-                    "আগে Screen Capture চালু করুন"
+        if (
+                projection == null ||
+                latestBitmap == null
+        ) {
+
+            sendResult(
+                    "NO TRADE",
+                    0,
+                    0,
+                    0
             );
 
             return;
         }
 
-        Bitmap frame;
+        scanning = true;
 
-        synchronized (frameLock) {
+        new Thread(() -> {
 
-            if (latestFrame == null) {
+            Bitmap frame = latestBitmap;
 
-                sendError(
-                        "এখনও screen frame পাওয়া যায়নি"
+            if (frame == null) {
+
+                scanning = false;
+
+                sendResult(
+                        "NO TRADE",
+                        0,
+                        0,
+                        0
                 );
 
                 return;
             }
 
-            frame =
-                    latestFrame.copy(
-                            Bitmap.Config.ARGB_8888,
-                            false
+            for (int p = 0; p <= 100; p += 5) {
+
+                final int progress = p;
+
+                handler.post(
+                        () -> sendProgress(
+                                progress
+                        )
+                );
+
+                try {
+                    Thread.sleep(45);
+                } catch (InterruptedException ignored) {
+                }
+            }
+
+            AnalysisResult result =
+                    analyze(frame);
+
+            handler.post(() -> {
+
+                scanning = false;
+
+                sendResult(
+                        result.signal,
+                        result.confidence,
+                        result.quality,
+                        result.candles
+                );
+            });
+
+        }).start();
+    }
+
+    private AnalysisResult analyze(
+            Bitmap bitmap
+    ) {
+
+        int w = bitmap.getWidth();
+
+        int h = bitmap.getHeight();
+
+        int left =
+                (int) (w * 0.05f);
+
+        int right =
+                (int) (w * 0.95f);
+
+        int top =
+                (int) (h * 0.20f);
+
+        int bottom =
+                (int) (h * 0.78f);
+
+        List<Candle> candles =
+                detectCandles(
+                        bitmap,
+                        left,
+                        top,
+                        right,
+                        bottom
+                );
+
+        if (candles.size() < 8) {
+
+            int q =
+                    Math.min(
+                            40,
+                            candles.size() * 5
+                    );
+
+            return new AnalysisResult(
+                    "NO TRADE",
+                    0,
+                    q,
+                    candles.size()
+            );
+        }
+
+        Collections.sort(
+                candles,
+                Comparator.comparingInt(
+                        a -> a.x
+                )
+        );
+
+        if (candles.size() > 80) {
+
+            candles =
+                    new ArrayList<>(
+                            candles.subList(
+                                    candles.size() - 80,
+                                    candles.size()
+                            )
                     );
         }
 
-        sendUI(
-                "SCANNING",
-                0
-        );
+        int up = 0;
 
-        new Thread(
-                () -> {
+        int down = 0;
 
-                    final long start =
-                            System.currentTimeMillis();
+        for (int rule = 1; rule <= 100; rule++) {
 
-                    ChartResult chart =
-                            ChartDetector.detect(
-                                    frame
-                            );
-
-                    AnalysisResult result =
-                            RuleEngine.analyze(
-                                    chart.candles
-                            );
-
-                    frame.recycle();
-
-                    long elapsed =
-                            System.currentTimeMillis()
-                                    - start;
-
-                    long minimum =
-                            1800;
-
-                    long delay =
-                            Math.max(
-                                    0,
-                                    minimum - elapsed
-                            );
-
-                    handler.postDelayed(
-                            () -> {
-
-                                sendUI(
-                                        "RESULT",
-                                        100,
-                                        result.signal,
-                                        result.confidence
-                                );
-
-                                sendResult(
-                                        result.signal,
-                                        result.confidence,
-                                        chart.quality,
-                                        result.ruleCount,
-                                        chart.candles.size()
-                                );
-
-                            },
-                            delay
+            int vote =
+                    ruleVote(
+                            rule,
+                            candles
                     );
 
+            if (vote > 0)
+                up++;
+
+            if (vote < 0)
+                down++;
+        }
+
+        int total =
+                up + down;
+
+        if (total < 15) {
+
+            return new AnalysisResult(
+                    "NO TRADE",
+                    0,
+                    frameQuality(candles),
+                    candles.size()
+            );
+        }
+
+        int confidence =
+                Math.round(
+                        100f *
+                                Math.max(
+                                        up,
+                                        down
+                                )
+                                / 100f
+                );
+
+        String signal;
+
+        if (
+                up >= 58 &&
+                up > down + 5
+        ) {
+
+            signal = "UP";
+
+        } else if (
+                down >= 58 &&
+                down > up + 5
+        ) {
+
+            signal = "DOWN";
+
+        } else {
+
+            signal = "NO TRADE";
+            confidence = 0;
+        }
+
+        return new AnalysisResult(
+                signal,
+                confidence,
+                frameQuality(candles),
+                candles.size()
+        );
+    }
+
+    private List<Candle> detectCandles(
+            Bitmap b,
+            int left,
+            int top,
+            int right,
+            int bottom
+    ) {
+
+        ArrayList<Candle> list =
+                new ArrayList<>();
+
+        int width =
+                right - left;
+
+        int[] red =
+                new int[width];
+
+        int[] green =
+                new int[width];
+
+        for (int x = left; x < right; x++) {
+
+            int rCount = 0;
+            int gCount = 0;
+
+            for (
+                    int y = top;
+                    y < bottom;
+                    y += 3
+            ) {
+
+                int c =
+                        b.getPixel(x, y);
+
+                int r =
+                        Color.red(c);
+
+                int g =
+                        Color.green(c);
+
+                int bl =
+                        Color.blue(c);
+
+                if (
+                        g > r * 1.30f &&
+                        g > bl * 1.20f &&
+                        g > 70
+                ) {
+
+                    gCount++;
+
+                } else if (
+                        r > g * 1.25f &&
+                        r > bl * 1.20f &&
+                        r > 70
+                ) {
+
+                    rCount++;
                 }
-        ).start();
+            }
 
-        animateProgress();
-    }
+            red[x - left] = rCount;
+            green[x - left] = gCount;
+        }
 
-    private void animateProgress() {
+        int x = 0;
 
-        final long start =
-                System.currentTimeMillis();
+        while (x < width) {
 
-        Runnable r =
-                new Runnable() {
+            int score =
+                    red[x] +
+                            green[x];
 
-                    @Override
-                    public void run() {
+            if (score < 4) {
 
-                        if (!captureActive) {
-                            return;
-                        }
+                x++;
+                continue;
+            }
 
-                        long elapsed =
-                                System.currentTimeMillis()
-                                        - start;
+            int start = x;
 
-                        int progress =
-                                (int)
-                                        Math.min(
-                                                99,
-                                                elapsed *
-                                                        100 /
-                                                        1800
-                                        );
+            int end = x;
 
-                        sendUI(
-                                "SCANNING",
-                                progress
-                        );
+            int rTotal = 0;
+            int gTotal = 0;
 
-                        if (progress < 99) {
+            while (
+                    end < width &&
+                    (
+                            red[end] +
+                                    green[end] >= 3 ||
+                            end - start < 2
+                    )
+            ) {
 
-                            handler.postDelayed(
-                                    this,
-                                    45
+                rTotal += red[end];
+                gTotal += green[end];
+
+                end++;
+
+                if (end - start > 18)
+                    break;
+            }
+
+            int center =
+                    left +
+                            (start + end) / 2;
+
+            boolean isGreen =
+                    gTotal >= rTotal;
+
+            int topY = bottom;
+
+            int bottomY = top;
+
+            int bodyTop = bottom;
+
+            int bodyBottom = top;
+
+            int samples = 0;
+
+            for (
+                    int xx = Math.max(
+                            left,
+                            center - 8
+                    );
+                    xx < Math.min(
+                            right,
+                            center + 9
+                    );
+                    xx++
+            ) {
+
+                for (
+                        int yy = top;
+                        yy < bottom;
+                        yy += 2
+                ) {
+
+                    int c =
+                            b.getPixel(
+                                    xx,
+                                    yy
                             );
-                        }
-                    }
-                };
 
-        handler.post(r);
+                    int r =
+                            Color.red(c);
+
+                    int g =
+                            Color.green(c);
+
+                    int bl =
+                            Color.blue(c);
+
+                    boolean good =
+                            isGreen
+                                    ? (
+                                    g > r * 1.25f &&
+                                    g > bl * 1.15f &&
+                                    g > 60
+                            )
+                                    : (
+                                    r > g * 1.20f &&
+                                    r > bl * 1.15f &&
+                                    r > 60
+                            );
+
+                    if (good) {
+
+                        topY =
+                                Math.min(
+                                        topY,
+                                        yy
+                                );
+
+                        bottomY =
+                                Math.max(
+                                        bottomY,
+                                        yy
+                                );
+
+                        samples++;
+                    }
+                }
+            }
+
+            if (samples >= 5) {
+
+                float high =
+                        bottom - topY;
+
+                float low =
+                        bottom - bottomY;
+
+                float open;
+                float close;
+
+                if (isGreen) {
+
+                    open =
+                            bottom - bottomY;
+
+                    close =
+                            bottom - topY;
+
+                } else {
+
+                    open =
+                            bottom - topY;
+
+                    close =
+                            bottom - bottomY;
+                }
+
+                if (high > low) {
+
+                    list.add(
+                            new Candle(
+                                    center,
+                                    open,
+                                    close,
+                                    high,
+                                    low,
+                                    isGreen
+                            )
+                    );
+                }
+            }
+
+            x =
+                    Math.max(
+                            end + 1,
+                            x + 1
+                    );
+        }
+
+        return list;
     }
 
-    private void sendUI(
-            String state,
+    private int ruleVote(
+            int rule,
+            List<Candle> c
+    ) {
+
+        int n = c.size();
+
+        Candle last =
+                c.get(n - 1);
+
+        Candle prev =
+                c.get(n - 2);
+
+        float close =
+                last.close;
+
+        float prevClose =
+                prev.close;
+
+        float change =
+                close - prevClose;
+
+        /*
+         * 1-10: Recent price action
+         */
+
+        if (rule <= 10) {
+
+            int k =
+                    rule % 5 + 2;
+
+            float sum = 0;
+
+            for (
+                    int i = n - k;
+                    i < n;
+                    i++
+            ) {
+
+                sum +=
+                        c.get(i).close -
+                                c.get(i).open;
+            }
+
+            if (sum > 0)
+                return 1;
+
+            if (sum < 0)
+                return -1;
+
+            return 0;
+        }
+
+        /*
+         * 11-20: Moving averages
+         */
+
+        if (rule <= 20) {
+
+            int fast =
+                    3 +
+                            (rule % 5);
+
+            int slow =
+                    8 +
+                            (rule % 7);
+
+            float f =
+                    smaClose(
+                            c,
+                            fast
+                    );
+
+            float s =
+                    smaClose(
+                            c,
+                            slow
+                    );
+
+            if (f > s && close > f)
+                return 1;
+
+            if (f < s && close < f)
+                return -1;
+
+            return 0;
+        }
+
+        /*
+         * 21-30: RSI
+         */
+
+        if (rule <= 30) {
+
+            int period =
+                    5 +
+                            rule % 6;
+
+            float rsi =
+                    rsi(
+                            c,
+                            period
+                    );
+
+            if (rsi < 35)
+                return 1;
+
+            if (rsi > 65)
+                return -1;
+
+            if (
+                    rsi > 50 &&
+                            close > prevClose
+            )
+                return 1;
+
+            if (
+                    rsi < 50 &&
+                            close < prevClose
+            )
+                return -1;
+
+            return 0;
+        }
+
+        /*
+         * 31-40: MACD style momentum
+         */
+
+        if (rule <= 40) {
+
+            int fast =
+                    5 + rule % 4;
+
+            int slow =
+                    12 + rule % 5;
+
+            int signal =
+                    4 + rule % 3;
+
+            float f =
+                    emaClose(
+                            c,
+                            fast
+                    );
+
+            float s =
+                    emaClose(
+                            c,
+                            slow
+                    );
+
+            float macd =
+                    f - s;
+
+            float previous =
+                    emaAtDifference(
+                            c,
+                            slow,
+                            signal
+                    );
+
+            if (
+                    macd > previous &&
+                            macd > 0
+            )
+                return 1;
+
+            if (
+                    macd < previous &&
+                            macd < 0
+            )
+                return -1;
+
+            return 0;
+        }
+
+        /*
+         * 41-50: Bollinger
+         */
+
+        if (rule <= 50) {
+
+            int p =
+                    8 + rule % 6;
+
+            float mean =
+                    smaClose(c, p);
+
+            float sd =
+                    stdClose(c, p);
+
+            float upper =
+                    mean + 2f * sd;
+
+            float lower =
+                    mean - 2f * sd;
+
+            if (close <= lower)
+                return 1;
+
+            if (close >= upper)
+                return -1;
+
+            if (close > mean)
+                return 1;
+
+            if (close < mean)
+                return -1;
+
+            return 0;
+        }
+
+        /*
+         * 51-60: Stochastic
+         */
+
+        if (rule <= 60) {
+
+            int p =
+                    5 + rule % 6;
+
+            float st =
+                    stochastic(
+                            c,
+                            p
+                    );
+
+            if (st < 20)
+                return 1;
+
+            if (st > 80)
+                return -1;
+
+            if (st > 50)
+                return 1;
+
+            if (st < 50)
+                return -1;
+
+            return 0;
+        }
+
+        /*
+         * 61-70: Candle body / wick logic
+         */
+
+        if (rule <= 70) {
+
+            float body =
+                    Math.abs(
+                            last.close -
+                                    last.open
+                    );
+
+            float range =
+                    Math.max(
+                            0.001f,
+                            last.high -
+                                    last.low
+                    );
+
+            float ratio =
+                    body / range;
+
+            if (
+                    last.green &&
+                            ratio > 0.55f
+            )
+                return 1;
+
+            if (
+                    !last.green &&
+                            ratio > 0.55f
+            )
+                return -1;
+
+            float upper =
+                    last.high -
+                            Math.max(
+                                    last.open,
+                                    last.close
+                            );
+
+            float lower =
+                    Math.min(
+                            last.open,
+                            last.close
+                    ) -
+                            last.low;
+
+            if (lower > upper * 1.5f)
+                return 1;
+
+            if (upper > lower * 1.5f)
+                return -1;
+
+            return 0;
+        }
+
+        /*
+         * 71-80: Support / resistance
+         */
+
+        if (rule <= 80) {
+
+            int p =
+                    10 + rule % 10;
+
+            float highest =
+                    highest(
+                            c,
+                            p
+                    );
+
+            float lowest =
+                    lowest(
+                            c,
+                            p
+                    );
+
+            float distanceHigh =
+                    Math.abs(
+                            highest - close
+                    );
+
+            float distanceLow =
+                    Math.abs(
+                            close - lowest
+                    );
+
+            if (
+                    distanceLow <
+                            distanceHigh * 0.65f
+            )
+                return 1;
+
+            if (
+                    distanceHigh <
+                            distanceLow * 0.65f
+            )
+                return -1;
+
+            return 0;
+        }
+
+        /*
+         * 81-90: Volatility / ATR
+         */
+
+        if (rule <= 90) {
+
+            int p =
+                    5 + rule % 7;
+
+            float atr =
+                    atr(
+                            c,
+                            p
+                    );
+
+            float body =
+                    Math.abs(
+                            last.close -
+                                    last.open
+                    );
+
+            if (
+                    body > atr * 0.7f &&
+                            change > 0
+            )
+                return 1;
+
+            if (
+                    body > atr * 0.7f &&
+                            change < 0
+            )
+                return -1;
+
+            return 0;
+        }
+
+        /*
+         * 91-100: Multi-confirmation
+         */
+
+        float ma =
+                smaClose(c, 10);
+
+        float r =
+                rsi(c, 10);
+
+        float st =
+                stochastic(c, 10);
+
+        float e =
+                emaClose(c, 12);
+
+        int score = 0;
+
+        if (close > ma)
+            score++;
+
+        else
+            score--;
+
+        if (r > 50)
+            score++;
+
+        else
+            score--;
+
+        if (st > 50)
+            score++;
+
+        else
+            score--;
+
+        if (close > e)
+            score++;
+
+        else
+            score--;
+
+        if (
+                last.green &&
+                        prev.green
+        )
+            score++;
+
+        if (
+                !last.green &&
+                        !prev.green
+        )
+            score--;
+
+        if (score >= 2)
+            return 1;
+
+        if (score <= -2)
+            return -1;
+
+        return 0;
+    }
+
+    private float smaClose(
+            List<Candle> c,
+            int period
+    ) {
+
+        int start =
+                Math.max(
+                        0,
+                        c.size() - period
+                );
+
+        float sum = 0;
+
+        int count = 0;
+
+        for (
+                int i = start;
+                i < c.size();
+                i++
+        ) {
+
+            sum += c.get(i).close;
+
+            count++;
+        }
+
+        return count == 0
+                ? 0
+                : sum / count;
+    }
+
+    private float emaClose(
+            List<Candle> c,
+            int period
+    ) {
+
+        if (c.isEmpty())
+            return 0;
+
+        float alpha =
+                2f /
+                        (period + 1f);
+
+        float ema =
+                c.get(0).close;
+
+        for (
+                int i = 1;
+                i < c.size();
+                i++
+        ) {
+
+            ema =
+                    alpha *
+                            c.get(i).close +
+                            (1f - alpha) *
+                                    ema;
+        }
+
+        return ema;
+    }
+
+    private float emaAtDifference(
+            List<Candle> c,
+            int slow,
+            int signal
+    ) {
+
+        int start =
+                Math.max(
+                        0,
+                        c.size() -
+                                signal -
+                                2
+                );
+
+        float sum = 0;
+
+        int count = 0;
+
+        for (
+                int i = start;
+                i < c.size();
+                i++
+        ) {
+
+            float fast =
+                    emaCloseAt(
+                            c,
+                            i,
+                            5
+                    );
+
+            float slowEma =
+                    emaCloseAt(
+                            c,
+                            i,
+                            slow
+                    );
+
+            sum +=
+                    fast -
+                            slowEma;
+
+            count++;
+        }
+
+        return count == 0
+                ? 0
+                : sum / count;
+    }
+
+    private float emaCloseAt(
+            List<Candle> c,
+            int index,
+            int period
+    ) {
+
+        int start =
+                Math.max(
+                        0,
+                        index - period * 3
+                );
+
+        float alpha =
+                2f /
+                        (period + 1f);
+
+        float ema =
+                c.get(start).close;
+
+        for (
+                int i = start + 1;
+                i <= index;
+                i++
+        ) {
+
+            ema =
+                    alpha *
+                            c.get(i).close +
+                            (1f - alpha) *
+                                    ema;
+        }
+
+        return ema;
+    }
+
+    private float rsi(
+            List<Candle> c,
+            int period
+    ) {
+
+        if (c.size() < period + 1)
+            return 50;
+
+        float gain = 0;
+
+        float loss = 0;
+
+        int start =
+                c.size() - period;
+
+        for (
+                int i = start;
+                i < c.size();
+                i++
+        ) {
+
+            float d =
+                    c.get(i).close -
+                            c.get(i - 1).close;
+
+            if (d > 0)
+                gain += d;
+
+            else
+                loss -= d;
+        }
+
+        if (loss == 0)
+            return 100;
+
+        float rs =
+                gain / loss;
+
+        return 100f -
+                100f /
+                        (1f + rs);
+    }
+
+    private float stochastic(
+            List<Candle> c,
+            int period
+    ) {
+
+        float high =
+                highest(
+                        c,
+                        period
+                );
+
+        float low =
+                lowest(
+                        c,
+                        period
+                );
+
+        float close =
+                c.get(
+                        c.size() - 1
+                ).close;
+
+        if (high == low)
+            return 50;
+
+        return
+                100f *
+                        (close - low) /
+                        (high - low);
+    }
+
+    private float highest(
+            List<Candle> c,
+            int period
+    ) {
+
+        int start =
+                Math.max(
+                        0,
+                        c.size() - period
+                );
+
+        float v =
+                Float.NEGATIVE_INFINITY;
+
+        for (
+                int i = start;
+                i < c.size();
+                i++
+        ) {
+
+            v =
+                    Math.max(
+                            v,
+                            c.get(i).high
+                    );
+        }
+
+        return v;
+    }
+
+    private float lowest(
+            List<Candle> c,
+            int period
+    ) {
+
+        int start =
+                Math.max(
+                        0,
+                        c.size() - period
+                );
+
+        float v =
+                Float.POSITIVE_INFINITY;
+
+        for (
+                int i = start;
+                i < c.size();
+                i++
+        ) {
+
+            v =
+                    Math.min(
+                            v,
+                            c.get(i).low
+                    );
+        }
+
+        return v;
+    }
+
+    private float stdClose(
+            List<Candle> c,
+            int period
+    ) {
+
+        float mean =
+                smaClose(
+                        c,
+                        period
+                );
+
+        int start =
+                Math.max(
+                        0,
+                        c.size() - period
+                );
+
+        float sum = 0;
+
+        int count = 0;
+
+        for (
+                int i = start;
+                i < c.size();
+                i++
+        ) {
+
+            float d =
+                    c.get(i).close -
+                            mean;
+
+            sum += d * d;
+
+            count++;
+        }
+
+        return count == 0
+                ? 0
+                : (float)
+                        Math.sqrt(
+                                sum / count
+                        );
+    }
+
+    private float atr(
+            List<Candle> c,
+            int period
+    ) {
+
+        int start =
+                Math.max(
+                        1,
+                        c.size() - period
+                );
+
+        float sum = 0;
+
+        int count = 0;
+
+        for (
+                int i = start;
+                i < c.size();
+                i++
+        ) {
+
+            Candle x =
+                    c.get(i);
+
+            Candle p =
+                    c.get(i - 1);
+
+            float tr =
+                    Math.max(
+                            x.high -
+                                    x.low,
+                            Math.max(
+                                    Math.abs(
+                                            x.high -
+                                                    p.close
+                                    ),
+                                    Math.abs(
+                                            x.low -
+                                                    p.close
+                                    )
+                            )
+                    );
+
+            sum += tr;
+
+            count++;
+        }
+
+        return count == 0
+                ? 0
+                : sum / count;
+    }
+
+    private int frameQuality(
+            List<Candle> candles
+    ) {
+
+        int q =
+                candles.size() * 6;
+
+        return Math.min(
+                100,
+                Math.max(
+                        0,
+                        q
+                )
+        );
+    }
+
+    private void sendProgress(
             int progress
     ) {
 
         Intent i =
-                new Intent(ACTION_UI);
+                new Intent(
+                        ACTION_PROGRESS
+                );
 
         i.setPackage(
                 getPackageName()
-        );
-
-        i.putExtra(
-                "state",
-                state
         );
 
         i.putExtra(
                 "progress",
                 progress
-        );
-
-        sendBroadcast(i);
-    }
-
-    private void sendUI(
-            String state,
-            int progress,
-            String signal,
-            int confidence
-    ) {
-
-        Intent i =
-                new Intent(ACTION_UI);
-
-        i.setPackage(
-                getPackageName()
-        );
-
-        i.putExtra(
-                "state",
-                state
-        );
-
-        i.putExtra(
-                "progress",
-                progress
-        );
-
-        i.putExtra(
-                "signal",
-                signal
-        );
-
-        i.putExtra(
-                "confidence",
-                confidence
-        );
-
-        sendBroadcast(i);
-    }
-
-    private void sendError(
-            String message
-    ) {
-
-        Intent i =
-                new Intent(ACTION_UI);
-
-        i.setPackage(
-                getPackageName()
-        );
-
-        i.putExtra(
-                "state",
-                "ERROR"
-        );
-
-        i.putExtra(
-                "message",
-                message
         );
 
         sendBroadcast(i);
@@ -619,12 +1629,13 @@ public class ScreenCaptureService extends Service {
             String signal,
             int confidence,
             int quality,
-            int rules,
             int candles
     ) {
 
         Intent result =
-                new Intent(ACTION_RESULT);
+                new Intent(
+                        ACTION_RESULT
+                );
 
         result.setPackage(
                 getPackageName()
@@ -647,7 +1658,7 @@ public class ScreenCaptureService extends Service {
 
         result.putExtra(
                 "ruleCount",
-                rules
+                100
         );
 
         result.putExtra(
@@ -658,7 +1669,7 @@ public class ScreenCaptureService extends Service {
         sendBroadcast(result);
     }
 
-    private void releaseDisplay() {
+    private void stopCapture() {
 
         if (virtualDisplay != null) {
 
@@ -679,2421 +1690,104 @@ public class ScreenCaptureService extends Service {
 
             imageReader = null;
         }
+
+        if (latestBitmap != null) {
+
+            try {
+                latestBitmap.recycle();
+            } catch (Exception ignored) {
+            }
+
+            latestBitmap = null;
+        }
+
+        projection = null;
+    }
+
+    private void createNotificationChannel() {
+
+        if (Build.VERSION.SDK_INT >= 26) {
+
+            NotificationChannel channel =
+                    new NotificationChannel(
+                            CHANNEL,
+                            "Screen Capture",
+                            NotificationManager
+                                    .IMPORTANCE_LOW
+                    );
+
+            NotificationManager manager =
+                    getSystemService(
+                            NotificationManager.class
+                    );
+
+            manager.createNotificationChannel(
+                    channel
+            );
+        }
     }
 
     @Override
     public void onDestroy() {
 
-        captureActive = false;
-
-        releaseDisplay();
-
-        if (projection != null) {
-
-            try {
-                projection.stop();
-            } catch (Exception ignored) {
-            }
-
-            projection = null;
-        }
-
-        synchronized (frameLock) {
-
-            if (latestFrame != null) {
-
-                latestFrame.recycle();
-                latestFrame = null;
-            }
-        }
+        stopCapture();
 
         super.onDestroy();
     }
 
-    public static class Candle {
+    private static class Candle {
 
-        public double open;
-        public double high;
-        public double low;
-        public double close;
+        int x;
 
-        public Candle(
-                double o,
-                double h,
-                double l,
-                double c
+        float open;
+
+        float close;
+
+        float high;
+
+        float low;
+
+        boolean green;
+
+        Candle(
+                int x,
+                float open,
+                float close,
+                float high,
+                float low,
+                boolean green
         ) {
 
-            open = o;
-            high = h;
-            low = l;
-            close = c;
-        }
-
-        public boolean bullish() {
-            return close > open;
-        }
-
-        public boolean bearish() {
-            return close < open;
-        }
-
-        public double range() {
-            return Math.max(
-                    0.000001,
-                    high - low
-            );
-        }
-
-        public double body() {
-            return Math.abs(
-                    close - open
-            );
+            this.x = x;
+            this.open = open;
+            this.close = close;
+            this.high = high;
+            this.low = low;
+            this.green = green;
         }
     }
 
-    public static class ChartResult {
-
-        public final List<Candle> candles;
-        public final int quality;
-
-        public ChartResult(
-                List<Candle> c,
-                int q
-        ) {
-
-            candles = c;
-            quality = q;
-        }
-    }
-
-    public static class ChartDetector {
-
-        public static ChartResult detect(
-                Bitmap bitmap
-        ) {
-
-            List<Candle> list =
-                    new ArrayList<>();
-
-            if (bitmap == null) {
-                return new ChartResult(
-                        list,
-                        0
-                );
-            }
-
-            int w =
-                    bitmap.getWidth();
-
-            int h =
-                    bitmap.getHeight();
-
-            int left =
-                    (int) (w * 0.03);
-
-            int right =
-                    (int) (w * 0.97);
-
-            int top =
-                    (int) (h * 0.12);
-
-            int bottom =
-                    (int) (h * 0.78);
-
-            int chartH =
-                    bottom - top;
-
-            ArrayList<Integer> columns =
-                    new ArrayList<>();
-
-            int threshold =
-                    Math.max(
-                            2,
-                            chartH / 180
-                    );
-
-            for (int x = left;
-                 x < right;
-                 x++) {
-
-                int count = 0;
-
-                for (int y = top;
-                     y < bottom;
-                     y += 2) {
-
-                    int color =
-                            bitmap.getPixel(
-                                    x,
-                                    y
-                            );
-
-                    if (isGreen(color) ||
-                            isRed(color)) {
-
-                        count++;
-                    }
-                }
-
-                if (count >= threshold) {
-                    columns.add(x);
-                }
-            }
-
-            if (columns.isEmpty()) {
-
-                return new ChartResult(
-                        list,
-                        5
-                );
-            }
-
-            ArrayList<int[]> groups =
-                    new ArrayList<>();
-
-            int start =
-                    columns.get(0);
-
-            int previous =
-                    start;
-
-            for (int i = 1;
-                 i < columns.size();
-                 i++) {
-
-                int x =
-                        columns.get(i);
-
-                if (x - previous > 8) {
-
-                    groups.add(
-                            new int[]{
-                                    start,
-                                    previous
-                            }
-                    );
-
-                    start = x;
-                }
-
-                previous = x;
-            }
-
-            groups.add(
-                    new int[]{
-                            start,
-                            previous
-                    }
-            );
-
-            double priceTop =
-                    1.0;
-
-            double priceBottom =
-                    0.0;
-
-            for (int[] g : groups) {
-
-                int x1 = g[0];
-                int x2 = g[1];
-
-                int width =
-                        x2 - x1 + 1;
-
-                if (width < 2 ||
-                        width > 45) {
-                    continue;
-                }
-
-                int highY = bottom;
-                int lowY = top;
-
-                int green = 0;
-                int red = 0;
-
-                for (int x = x1;
-                     x <= x2;
-                     x++) {
-
-                    for (int y = top;
-                         y < bottom;
-                         y += 2) {
-
-                        int color =
-                                bitmap.getPixel(
-                                        x,
-                                        y
-                                );
-
-                        if (isGreen(color)) {
-
-                            green++;
-
-                            highY =
-                                    Math.min(
-                                            highY,
-                                            y
-                                    );
-
-                            lowY =
-                                    Math.max(
-                                            lowY,
-                                            y
-                                    );
-
-                        } else if (isRed(color)) {
-
-                            red++;
-
-                            highY =
-                                    Math.min(
-                                            highY,
-                                            y
-                                    );
-
-                            lowY =
-                                    Math.max(
-                                            lowY,
-                                            y
-                                    );
-                        }
-                    }
-                }
-
-                if (green + red < 5) {
-                    continue;
-                }
-
-                boolean isBull =
-                        green >= red;
-
-                double high =
-                        priceTop +
-                        (bottom - highY) /
-                                (double) chartH;
-
-                double low =
-                        priceBottom +
-                        (bottom - lowY) /
-                                (double) chartH;
-
-                if (high <= low) {
-                    continue;
-                }
-
-                double open;
-                double close;
-
-                if (isBull) {
-
-                    close =
-                            high -
-                            (high - low) *
-                                    0.25;
-
-                    open =
-                            high -
-                            (high - low) *
-                                    0.75;
-
-                } else {
-
-                    open =
-                            high -
-                            (high - low) *
-                                    0.25;
-
-                    close =
-                            high -
-                            (high - low) *
-                                    0.75;
-                }
-
-                list.add(
-                        new Candle(
-                                open,
-                                high,
-                                low,
-                                close
-                        )
-                );
-            }
-
-            if (list.size() > 80) {
-
-                list =
-                        new ArrayList<>(
-                                list.subList(
-                                        list.size() - 80,
-                                        list.size()
-                                )
-                        );
-            }
-
-            int quality =
-                    Math.min(
-                            100,
-                            list.size() * 3
-                    );
-
-            if (list.size() >= 20) {
-                quality += 20;
-            }
-
-            quality =
-                    Math.min(
-                            100,
-                            quality
-                    );
-
-            return new ChartResult(
-                    list,
-                    quality
-            );
-        }
-
-        private static boolean isGreen(
-                int c
-        ) {
-
-            int r =
-                    Color.red(c);
-
-            int g =
-                    Color.green(c);
-
-            int b =
-                    Color.blue(c);
-
-            return g > 95 &&
-                    g > r * 1.25 &&
-                    g > b * 1.05;
-        }
-
-        private static boolean isRed(
-                int c
-        ) {
-
-            int r =
-                    Color.red(c);
-
-            int g =
-                    Color.green(c);
-
-            int b =
-                    Color.blue(c);
-
-            return r > 100 &&
-                    r > g * 1.25 &&
-                    r > b * 1.10;
-        }
-    }
-
-    public static class AnalysisResult {
+    private static class AnalysisResult {
 
         String signal;
+
         int confidence;
-        int ruleCount;
+
+        int quality;
+
+        int candles;
 
         AnalysisResult(
-                String s,
-                int c,
-                int r
+                String signal,
+                int confidence,
+                int quality,
+                int candles
         ) {
 
-            signal = s;
-            confidence = c;
-            ruleCount = r;
-        }
-    }
-
-    public static class RuleEngine {
-
-        public static AnalysisResult analyze(
-                List<Candle> c
-        ) {
-
-            if (c == null ||
-                    c.size() < 12) {
-
-                return new AnalysisResult(
-                        "NO TRADE",
-                        0,
-                        100
-                );
-            }
-
-            double[] close =
-                    closes(c);
-
-            double[] high =
-                    highs(c);
-
-            double[] low =
-                    lows(c);
-
-            double[] open =
-                    opens(c);
-
-            double sma5 =
-                    sma(close, 5);
-
-            double sma10 =
-                    sma(close, 10);
-
-            double sma20 =
-                    sma(close, Math.min(
-                            20,
-                            close.length
-                    ));
-
-            double sma50 =
-                    sma(close, Math.min(
-                            50,
-                            close.length
-                    ));
-
-            double ema5 =
-                    ema(close, 5);
-
-            double ema10 =
-                    ema(close, 10);
-
-            double ema20 =
-                    ema(close, 20);
-
-            double ema50 =
-                    ema(close, 50);
-
-            double rsi =
-                    rsi(close, 14);
-
-            double rsiPrev =
-                    rsiPrev(close, 14);
-
-            double[] macd =
-                    macd(close);
-
-            double[] stoch =
-                    stochastic(
-                            high,
-                            low,
-                            close,
-                            14
-                    );
-
-            double roc =
-                    roc(close, 5);
-
-            double momentum =
-                    momentum(
-                            close,
-                            5
-                    );
-
-            double atr =
-                    atr(
-                            high,
-                            low,
-                            close,
-                            14
-                    );
-
-            double atrPrev =
-                    atr(
-                            high,
-                            low,
-                            close,
-                            Math.min(
-                                    10,
-                                    close.length
-                            )
-                    );
-
-            double avgRange =
-                    averageRange(c, 10);
-
-            double avgBody =
-                    averageBody(c, 10);
-
-            Candle last =
-                    c.get(c.size() - 1);
-
-            Candle prev =
-                    c.get(c.size() - 2);
-
-            Candle p3 =
-                    c.get(c.size() - 3);
-
-            boolean[] bull =
-                    new boolean[100];
-
-            boolean[] bear =
-                    new boolean[100];
-
-            /*
-             * 1-20 TREND
-             */
-
-            bull[0] =
-                    last.close > sma5;
-
-            bear[0] =
-                    last.close < sma5;
-
-            bull[1] =
-                    last.close > sma10;
-
-            bear[1] =
-                    last.close < sma10;
-
-            bull[2] =
-                    last.close > sma20;
-
-            bear[2] =
-                    last.close < sma20;
-
-            bull[3] =
-                    last.close > sma50;
-
-            bear[3] =
-                    last.close < sma50;
-
-            bull[4] =
-                    ema5 > ema10;
-
-            bear[4] =
-                    ema5 < ema10;
-
-            bull[5] =
-                    ema10 > ema20;
-
-            bear[5] =
-                    ema10 < ema20;
-
-            bull[6] =
-                    ema20 > ema50;
-
-            bear[6] =
-                    ema20 < ema50;
-
-            bull[7] =
-                    sma5 > sma10;
-
-            bear[7] =
-                    sma5 < sma10;
-
-            bull[8] =
-                    sma10 > sma20;
-
-            bear[8] =
-                    sma10 < sma20;
-
-            bull[9] =
-                    sma20 > sma50;
-
-            bear[9] =
-                    sma20 < sma50;
-
-            bull[10] =
-                    last.close >
-                            c.get(
-                                    Math.max(
-                                            0,
-                                            c.size() - 4
-                                    )
-                            ).close;
-
-            bear[10] =
-                    last.close <
-                            c.get(
-                                    Math.max(
-                                            0,
-                                            c.size() - 4
-                                    )
-                            ).close;
-
-            bull[11] =
-                    higherLows(c);
-
-            bear[11] =
-                    lowerLows(c);
-
-            bull[12] =
-                    higherHighs(c);
-
-            bear[12] =
-                    lowerHighs(c);
-
-            bull[13] =
-                    ema5 >
-                            ema(
-                                    close,
-                                    5,
-                                    close.length - 2
-                            );
-
-            bear[13] =
-                    ema5 <
-                            ema(
-                                    close,
-                                    5,
-                                    close.length - 2
-                            );
-
-            bull[14] =
-                    ema10 >
-                            ema(
-                                    close,
-                                    10,
-                                    close.length - 2
-                            );
-
-            bear[14] =
-                    ema10 <
-                            ema(
-                                    close,
-                                    10,
-                                    close.length - 2
-                            );
-
-            bull[15] =
-                    ema20 >
-                            ema(
-                                    close,
-                                    20,
-                                    close.length - 2
-                            );
-
-            bear[15] =
-                    ema20 <
-                            ema(
-                                    close,
-                                    20,
-                                    close.length - 2
-                            );
-
-            bull[16] =
-                    smaSlope(
-                            close,
-                            20
-                    ) > 0;
-
-            bear[16] =
-                    smaSlope(
-                            close,
-                            20
-                    ) < 0;
-
-            bull[17] =
-                    trendConsistency(
-                            close
-                    ) > 0;
-
-            bear[17] =
-                    trendConsistency(
-                            close
-                    ) < 0;
-
-            bull[18] =
-                    last.close >
-                            average(
-                                    close
-                            );
-
-            bear[18] =
-                    last.close <
-                            average(
-                                    close
-                            );
-
-            bull[19] =
-                    last.close >
-                            (sma10 + ema20) / 2;
-
-            bear[19] =
-                    last.close <
-                            (sma10 + ema20) / 2;
-
-            /*
-             * 21-40 CANDLE
-             */
-
-            bull[20] =
-                    last.bullish();
-
-            bear[20] =
-                    last.bearish();
-
-            bull[21] =
-                    prev.bullish();
-
-            bear[21] =
-                    prev.bearish();
-
-            bull[22] =
-                    bullishEngulfing(
-                            prev,
-                            last
-                    );
-
-            bear[22] =
-                    bearishEngulfing(
-                            prev,
-                            last
-                    );
-
-            bull[23] =
-                    hammer(last);
-
-            bear[23] =
-                    shootingStar(last);
-
-            bull[24] =
-                    doji(last);
-
-            bear[24] =
-                    doji(last);
-
-            bull[25] =
-                    last.bullish() &&
-                    last.body() >
-                            avgBody * 1.25;
-
-            bear[25] =
-                    last.bearish() &&
-                    last.body() >
-                            avgBody * 1.25;
-
-            bull[26] =
-                    closeNearHigh(last);
-
-            bear[26] =
-                    closeNearLow(last);
-
-            bull[27] =
-                    bullishCount(c, 3) == 3;
-
-            bear[27] =
-                    bearishCount(c, 3) == 3;
-
-            bull[28] =
-                    bullishStreak(c) >= 3;
-
-            bear[28] =
-                    bearishStreak(c) >= 3;
-
-            bull[29] =
-                    last.bullish() &&
-                    last.body() >
-                            prev.body();
-
-            bear[29] =
-                    last.bearish() &&
-                    last.body() >
-                            prev.body();
-
-            bull[30] =
-                    last.bullish() &&
-                    prev.bearish() &&
-                    p3.bearish();
-
-            bear[30] =
-                    last.bearish() &&
-                    prev.bullish() &&
-                    p3.bullish();
-
-            bull[31] =
-                    last.bullish() &&
-                    last.range() >
-                            avgRange;
-
-            bear[31] =
-                    last.bearish() &&
-                    last.range() >
-                            avgRange;
-
-            bull[32] =
-                    last.close >
-                            last.open;
-
-            bear[32] =
-                    last.close <
-                            last.open;
-
-            bull[33] =
-                    lowerWick(last) >
-                            last.body() * 1.2;
-
-            bear[33] =
-                    upperWick(last) >
-                            last.body() * 1.2;
-
-            bull[34] =
-                    closeNearHigh(prev);
-
-            bear[34] =
-                    closeNearLow(prev);
-
-            bull[35] =
-                    last.bullish() &&
-                    prev.bullish();
-
-            bear[35] =
-                    last.bearish() &&
-                    prev.bearish();
-
-            bull[36] =
-                    last.bullish() &&
-                    p3.bullish();
-
-            bear[36] =
-                    last.bearish() &&
-                    p3.bearish();
-
-            bull[37] =
-                    last.close >
-                            prev.close &&
-                    prev.close >
-                            p3.close;
-
-            bear[37] =
-                    last.close <
-                            prev.close &&
-                    prev.close <
-                            p3.close;
-
-            bull[38] =
-                    lowerWick(last) >
-                            upperWick(last);
-
-            bear[38] =
-                    upperWick(last) >
-                            lowerWick(last);
-
-            bull[39] =
-                    last.bullish() &&
-                    last.close >
-                            (last.high +
-                                    last.low) / 2;
-
-            bear[39] =
-                    last.bearish() &&
-                    last.close <
-                            (last.high +
-                                    last.low) / 2;
-
-            /*
-             * 41-60 MOMENTUM
-             */
-
-            bull[40] = rsi > 50;
-            bear[40] = rsi < 50;
-
-            bull[41] = rsi > 55;
-            bear[41] = rsi < 45;
-
-            bull[42] = rsi < 30;
-            bear[42] = rsi > 70;
-
-            bull[43] = rsi > rsiPrev;
-            bear[43] = rsi < rsiPrev;
-
-            bull[44] = macd[2] > 0;
-            bear[44] = macd[2] < 0;
-
-            bull[45] = macd[0] > macd[1];
-            bear[45] = macd[0] < macd[1];
-
-            bull[46] =
-                    macd[0] > macd[1] &&
-                    macd[3] <= 0;
-
-            bear[46] =
-                    macd[0] < macd[1] &&
-                    macd[3] >= 0;
-
-            bull[47] = stoch[0] > stoch[1];
-            bear[47] = stoch[0] < stoch[1];
-
-            bull[48] = stoch[0] < 20;
-            bear[48] = stoch[0] > 80;
-
-            bull[49] = roc > 0;
-            bear[49] = roc < 0;
-
-            bull[50] = momentum > 0;
-            bear[50] = momentum < 0;
-
-            bull[51] = rsi > 50 && macd[2] > 0;
-            bear[51] = rsi < 50 && macd[2] < 0;
-
-            bull[52] =
-                    stoch[0] > 50 &&
-                    rsi > 50;
-
-            bear[52] =
-                    stoch[0] < 50 &&
-                    rsi < 50;
-
-            bull[53] =
-                    roc > 0 &&
-                    momentum > 0;
-
-            bear[53] =
-                    roc < 0 &&
-                    momentum < 0;
-
-            bull[54] =
-                    last.close > ema5 &&
-                    rsi > 50;
-
-            bear[54] =
-                    last.close < ema5 &&
-                    rsi < 50;
-
-            bull[55] =
-                    last.close > ema10 &&
-                    macd[2] > 0;
-
-            bear[55] =
-                    last.close < ema10 &&
-                    macd[2] < 0;
-
-            bull[56] =
-                    ema5 > ema10 &&
-                    rsi > 50;
-
-            bear[56] =
-                    ema5 < ema10 &&
-                    rsi < 50;
-
-            bull[57] =
-                    ema10 > ema20 &&
-                    macd[2] > 0;
-
-            bear[57] =
-                    ema10 < ema20 &&
-                    macd[2] < 0;
-
-            bull[58] =
-                    rsi > 55 &&
-                    stoch[0] > 50;
-
-            bear[58] =
-                    rsi < 45 &&
-                    stoch[0] < 50;
-
-            bull[59] =
-                    rsi > 50 &&
-                    roc > 0;
-
-            bear[59] =
-                    rsi < 50 &&
-                    roc < 0;
-
-            /*
-             * 61-80 VOLATILITY
-             */
-
-            bull[60] = atr > atrPrev;
-            bear[60] = atr < atrPrev;
-
-            bull[61] = atr < atrPrev;
-            bear[61] = atr > atrPrev;
-
-            bull[62] =
-                    last.range() >
-                            avgRange;
-
-            bear[62] =
-                    last.range() >
-                            avgRange;
-
-            bull[63] =
-                    last.body() >
-                            avgBody;
-
-            bear[63] =
-                    last.body() >
-                            avgBody;
-
-            bull[64] =
-                    last.close >
-                            recentHigh(
-                                    high,
-                                    10
-                            );
-
-            bear[64] =
-                    last.close <
-                            recentLow(
-                                    low,
-                                    10
-                            );
-
-            bull[65] =
-                    last.close >
-                            prev.high;
-
-            bear[65] =
-                    last.close <
-                            prev.low;
-
-            bull[66] =
-                    last.close >
-                            average(
-                                    close
-                            );
-
-            bear[66] =
-                    last.close <
-                            average(
-                                    close
-                            );
-
-            bull[67] =
-                    last.bullish() &&
-                    atr > atrPrev;
-
-            bear[67] =
-                    last.bearish() &&
-                    atr > atrPrev;
-
-            bull[68] =
-                    last.close >
-                            prev.close &&
-                    last.range() >
-                            prev.range();
-
-            bear[68] =
-                    last.close <
-                            prev.close &&
-                    last.range() >
-                            prev.range();
-
-            bull[69] =
-                    last.bullish() &&
-                    lowerWick(last) >
-                            upperWick(last);
-
-            bear[69] =
-                    last.bearish() &&
-                    upperWick(last) >
-                            lowerWick(last);
-
-            bull[70] =
-                    last.close >
-                            last.low +
-                                    last.range() *
-                                            .65;
-
-            bear[70] =
-                    last.close <
-                            last.low +
-                                    last.range() *
-                                            .35;
-
-            bull[71] =
-                    closePosition(
-                            last
-                    ) > .60;
-
-            bear[71] =
-                    closePosition(
-                            last
-                    ) < .40;
-
-            bull[72] =
-                    last.close >
-                            prev.high;
-
-            bear[72] =
-                    last.close <
-                            prev.low;
-
-            bull[73] =
-                    last.high >
-                            prev.high;
-
-            bear[73] =
-                    last.low <
-                            prev.low;
-
-            bull[74] =
-                    last.close >
-                            ema20 &&
-                    atr > 0;
-
-            bear[74] =
-                    last.close <
-                            ema20 &&
-                    atr > 0;
-
-            bull[75] =
-                    last.close >
-                            sma20 &&
-                    atr > 0;
-
-            bear[75] =
-                    last.close <
-                            sma20 &&
-                    atr > 0;
-
-            bull[76] =
-                    avgRange > 0 &&
-                    last.range() >
-                            avgRange * 1.15;
-
-            bear[76] =
-                    avgRange > 0 &&
-                    last.range() >
-                            avgRange * 1.15;
-
-            bull[77] =
-                    last.bullish() &&
-                    last.range() >
-                            prev.range();
-
-            bear[77] =
-                    last.bearish() &&
-                    last.range() >
-                            prev.range();
-
-            bull[78] =
-                    last.bullish() &&
-                    last.body() /
-                            last.range() >
-                            .55;
-
-            bear[78] =
-                    last.bearish() &&
-                    last.body() /
-                            last.range() >
-                            .55;
-
-            bull[79] =
-                    last.close >
-                            (last.high +
-                                    last.low +
-                                    prev.close) /
-                                    3;
-
-            bear[79] =
-                    last.close <
-                            (last.high +
-                                    last.low +
-                                    prev.close) /
-                                    3;
-
-            /*
-             * 81-100 LEVELS
-             */
-
-            double resistance =
-                    recentHigh(
-                            high,
-                            15
-                    );
-
-            double support =
-                    recentLow(
-                            low,
-                            15
-                    );
-
-            double pivot =
-                    (last.high +
-                            last.low +
-                            last.close) /
-                            3;
-
-            double midpoint =
-                    (resistance +
-                            support) / 2;
-
-            bull[80] =
-                    last.close >
-                            resistance;
-
-            bear[80] =
-                    last.close <
-                            support;
-
-            bull[81] =
-                    last.close >
-                            pivot;
-
-            bear[81] =
-                    last.close <
-                            pivot;
-
-            bull[82] =
-                    distance(
-                            last.close,
-                            support
-                    ) <
-                    distance(
-                            last.close,
-                            resistance
-                    );
-
-            bear[82] =
-                    distance(
-                            last.close,
-                            resistance
-                    ) <
-                    distance(
-                            last.close,
-                            support
-                    );
-
-            bull[83] =
-                    last.close >
-                            midpoint;
-
-            bear[83] =
-                    last.close <
-                            midpoint;
-
-            bull[84] =
-                    last.low <=
-                            support * 1.01 &&
-                    last.close > support;
-
-            bear[84] =
-                    last.high >=
-                            resistance * .99 &&
-                    last.close < resistance;
-
-            bull[85] =
-                    last.close >
-                            recentHigh(
-                                    high,
-                                    Math.min(
-                                            10,
-                                            high.length
-                                    )
-                            );
-
-            bear[85] =
-                    last.close <
-                            recentLow(
-                                    low,
-                                    Math.min(
-                                            10,
-                                            low.length
-                                    )
-                            );
-
-            bull[86] =
-                    last.low <
-                            prev.low &&
-                    last.close >
-                            prev.close;
-
-            bear[86] =
-                    last.high >
-                            prev.high &&
-                    last.close <
-                            prev.close;
-
-            bull[87] =
-                    higherHighs(c) &&
-                    higherLows(c);
-
-            bear[87] =
-                    lowerHighs(c) &&
-                    lowerLows(c);
-
-            bull[88] =
-                    last.close >
-                            average(
-                                    close
-                            );
-
-            bear[88] =
-                    last.close <
-                            average(
-                                    close
-                            );
-
-            bull[89] =
-                    last.close >
-                            recentHigh(
-                                    high,
-                                    20
-                            );
-
-            bear[89] =
-                    last.close <
-                            recentLow(
-                                    low,
-                                    20
-                            );
-
-            bull[90] =
-                    last.close >
-                            resistance &&
-                    last.bullish();
-
-            bear[90] =
-                    last.close <
-                            support &&
-                    last.bearish();
-
-            bull[91] =
-                    last.close >
-                            pivot &&
-                    rsi > 50;
-
-            bear[91] =
-                    last.close <
-                            pivot &&
-                    rsi < 50;
-
-            bull[92] =
-                    last.close >
-                            sma20 &&
-                    ema20 > ema50;
-
-            bear[92] =
-                    last.close <
-                            sma20 &&
-                    ema20 < ema50;
-
-            bull[93] =
-                    ema5 > ema10 &&
-                    ema10 > ema20;
-
-            bear[93] =
-                    ema5 < ema10 &&
-                    ema10 < ema20;
-
-            bull[94] =
-                    last.close >
-                            ema20 &&
-                    last.close >
-                            sma20;
-
-            bear[94] =
-                    last.close <
-                            ema20 &&
-                    last.close <
-                            sma20;
-
-            bull[95] =
-                    last.bullish() &&
-                    closeNearHigh(last) &&
-                    rsi > 50;
-
-            bear[95] =
-                    last.bearish() &&
-                    closeNearLow(last) &&
-                    rsi < 50;
-
-            bull[96] =
-                    higherLows(c) &&
-                    rsi > 45;
-
-            bear[96] =
-                    lowerHighs(c) &&
-                    rsi < 55;
-
-            bull[97] =
-                    macd[2] > 0 &&
-                    last.close > pivot;
-
-            bear[97] =
-                    macd[2] < 0 &&
-                    last.close < pivot;
-
-            bull[98] =
-                    stoch[0] > stoch[1] &&
-                    last.close > pivot;
-
-            bear[98] =
-                    stoch[0] < stoch[1] &&
-                    last.close < pivot;
-
-            bull[99] =
-                    bullAgreement(
-                            bull
-                    ) >
-                    bearAgreement(
-                            bear
-                    );
-
-            bear[99] =
-                    bearAgreement(
-                            bear
-                    ) >
-                    bullAgreement(
-                            bull
-                    );
-
-            int bullVotes = 0;
-            int bearVotes = 0;
-
-            for (int i = 0;
-                 i < 100;
-                 i++) {
-
-                if (bull[i] && !bear[i]) {
-                    bullVotes++;
-                }
-
-                if (bear[i] && !bull[i]) {
-                    bearVotes++;
-                }
-            }
-
-            int strongest =
-                    Math.max(
-                            bullVotes,
-                            bearVotes
-                    );
-
-            int weakest =
-                    Math.min(
-                            bullVotes,
-                            bearVotes
-                    );
-
-            int confidence =
-                    Math.max(
-                            0,
-                            Math.min(
-                                    100,
-                                    strongest -
-                                            weakest
-                            )
-                    );
-
-            String signal;
-
-            if (bullVotes >= 65 &&
-                    bullVotes - bearVotes >= 15) {
-
-                signal = "UP";
-
-            } else if (bearVotes >= 65 &&
-                    bearVotes - bullVotes >= 15) {
-
-                signal = "DOWN";
-
-            } else {
-
-                signal = "NO TRADE";
-                confidence = 0;
-            }
-
-            return new AnalysisResult(
-                    signal,
-                    confidence,
-                    100
-            );
-        }
-
-        private static int bullAgreement(
-                boolean[] a
-        ) {
-
-            int n = 0;
-
-            for (boolean b : a) {
-                if (b) n++;
-            }
-
-            return n;
-        }
-
-        private static int bearAgreement(
-                boolean[] a
-        ) {
-
-            int n = 0;
-
-            for (boolean b : a) {
-                if (b) n++;
-            }
-
-            return n;
-        }
-
-        private static double[] closes(
-                List<Candle> c
-        ) {
-
-            double[] a =
-                    new double[c.size()];
-
-            for (int i = 0;
-                 i < c.size();
-                 i++) {
-
-                a[i] =
-                        c.get(i).close;
-            }
-
-            return a;
-        }
-
-        private static double[] highs(
-                List<Candle> c
-        ) {
-
-            double[] a =
-                    new double[c.size()];
-
-            for (int i = 0;
-                 i < c.size();
-                 i++) {
-
-                a[i] =
-                        c.get(i).high;
-            }
-
-            return a;
-        }
-
-        private static double[] lows(
-                List<Candle> c
-        ) {
-
-            double[] a =
-                    new double[c.size()];
-
-            for (int i = 0;
-                 i < c.size();
-                 i++) {
-
-                a[i] =
-                        c.get(i).low;
-            }
-
-            return a;
-        }
-
-        private static double[] opens(
-                List<Candle> c
-        ) {
-
-            double[] a =
-                    new double[c.size()];
-
-            for (int i = 0;
-                 i < c.size();
-                 i++) {
-
-                a[i] =
-                        c.get(i).open;
-            }
-
-            return a;
-        }
-
-        private static double sma(
-                double[] a,
-                int n
-        ) {
-
-            n =
-                    Math.min(
-                            n,
-                            a.length
-                    );
-
-            double sum = 0;
-
-            for (int i =
-                    a.length - n;
-                 i < a.length;
-                 i++) {
-
-                sum += a[i];
-            }
-
-            return sum / n;
-        }
-
-        private static double ema(
-                double[] a,
-                int period
-        ) {
-
-            return ema(
-                    a,
-                    period,
-                    a.length
-            );
-        }
-
-        private static double ema(
-                double[] a,
-                int period,
-                int count
-        ) {
-
-            count =
-                    Math.max(
-                            1,
-                            Math.min(
-                                    count,
-                                    a.length
-                            )
-                    );
-
-            double k =
-                    2.0 /
-                            (period + 1);
-
-            double e = a[0];
-
-            for (int i = 1;
-                 i < count;
-                 i++) {
-
-                e =
-                        a[i] * k +
-                        e * (1 - k);
-            }
-
-            return e;
-        }
-
-        private static double rsi(
-                double[] a,
-                int period
-        ) {
-
-            if (a.length < 3) {
-                return 50;
-            }
-
-            int start =
-                    Math.max(
-                            1,
-                            a.length - period
-                    );
-
-            double gain = 0;
-            double loss = 0;
-
-            for (int i = start;
-                 i < a.length;
-                 i++) {
-
-                double d =
-                        a[i] - a[i - 1];
-
-                if (d > 0) {
-                    gain += d;
-                } else {
-                    loss -= d;
-                }
-            }
-
-            if (loss == 0) {
-                return 100;
-            }
-
-            double rs =
-                    gain / loss;
-
-            return 100 -
-                    100 /
-                            (1 + rs);
-        }
-
-        private static double rsiPrev(
-                double[] a,
-                int period
-        ) {
-
-            if (a.length < 5) {
-                return 50;
-            }
-
-            double[] x =
-                    new double[
-                            a.length - 1
-                    ];
-
-            System.arraycopy(
-                    a,
-                    0,
-                    x,
-                    0,
-                    x.length
-            );
-
-            return rsi(
-                    x,
-                    period
-            );
-        }
-
-        private static double[] macd(
-                double[] a
-        ) {
-
-            double e12 =
-                    ema(a, 12);
-
-            double e26 =
-                    ema(a, 26);
-
-            double macd =
-                    e12 - e26;
-
-            double[] temp =
-                    new double[
-                            a.length
-                    ];
-
-            for (int i = 0;
-                 i < a.length;
-                 i++) {
-
-                double e12i =
-                        ema(
-                                a,
-                                12,
-                                i + 1
-                        );
-
-                double e26i =
-                        ema(
-                                a,
-                                26,
-                                i + 1
-                        );
-
-                temp[i] =
-                        e12i - e26i;
-            }
-
-            double signal =
-                    ema(
-                            temp,
-                            9
-                    );
-
-            double histogram =
-                    macd - signal;
-
-            double previous =
-                    temp.length > 1
-                            ? temp[
-                                temp.length - 2
-                            ]
-                            : 0;
-
-            return new double[]{
-                    macd,
-                    signal,
-                    histogram,
-                    previous
-            };
-        }
-
-        private static double[] stochastic(
-                double[] high,
-                double[] low,
-                double[] close,
-                int period
-        ) {
-
-            int n =
-                    Math.min(
-                            period,
-                            close.length
-                    );
-
-            double hi =
-                    recentHigh(
-                            high,
-                            n
-                    );
-
-            double lo =
-                    recentLow(
-                            low,
-                            n
-                    );
-
-            double k =
-                    hi == lo
-                            ? 50
-                            : (
-                                (close[
-                                    close.length - 1
-                                ] - lo)
-                                /
-                                (hi - lo)
-                            ) * 100;
-
-            double previousClose =
-                    close.length > 1
-                            ? close[
-                                close.length - 2
-                            ]
-                            : close[
-                                close.length - 1
-                            ];
-
-            double previousK =
-                    hi == lo
-                            ? 50
-                            : (
-                                (previousClose - lo)
-                                /
-                                (hi - lo)
-                            ) * 100;
-
-            return new double[]{
-                    k,
-                    previousK
-            };
-        }
-
-        private static double roc(
-                double[] a,
-                int n
-        ) {
-
-            if (a.length <= n) {
-                return 0;
-            }
-
-            double old =
-                    a[
-                        a.length - 1 - n
-                    ];
-
-            if (old == 0) {
-                return 0;
-            }
-
-            return (
-                    a[a.length - 1] -
-                    old
-            ) / old * 100;
-        }
-
-        private static double momentum(
-                double[] a,
-                int n
-        ) {
-
-            if (a.length <= n) {
-                return 0;
-            }
-
-            return a[
-                    a.length - 1
-            ] -
-                    a[
-                            a.length - 1 - n
-                    ];
-        }
-
-        private static double atr(
-                double[] high,
-                double[] low,
-                double[] close,
-                int period
-        ) {
-
-            int start =
-                    Math.max(
-                            1,
-                            close.length -
-                                    period
-                    );
-
-            double sum = 0;
-            int count = 0;
-
-            for (int i = start;
-                 i < close.length;
-                 i++) {
-
-                double tr =
-                        Math.max(
-                                high[i] - low[i],
-                                Math.max(
-                                        Math.abs(
-                                                high[i] -
-                                                        close[i - 1]
-                                        ),
-                                        Math.abs(
-                                                low[i] -
-                                                        close[i - 1]
-                                        )
-                                )
-                        );
-
-                sum += tr;
-                count++;
-            }
-
-            return count == 0
-                    ? 0
-                    : sum / count;
-        }
-
-        private static double averageRange(
-                List<Candle> c,
-                int n
-        ) {
-
-            n =
-                    Math.min(
-                            n,
-                            c.size()
-                    );
-
-            double s = 0;
-
-            for (int i =
-                    c.size() - n;
-                 i < c.size();
-                 i++) {
-
-                s += c.get(i).range();
-            }
-
-            return s / n;
-        }
-
-        private static double averageBody(
-                List<Candle> c,
-                int n
-        ) {
-
-            n =
-                    Math.min(
-                            n,
-                            c.size()
-                    );
-
-            double s = 0;
-
-            for (int i =
-                    c.size() - n;
-                 i < c.size();
-                 i++) {
-
-                s += c.get(i).body();
-            }
-
-            return s / n;
-        }
-
-        private static double recentHigh(
-                double[] a,
-                int n
-        ) {
-
-            n =
-                    Math.min(
-                            n,
-                            a.length
-                    );
-
-            double x =
-                    -Double.MAX_VALUE;
-
-            for (int i =
-                    a.length - n;
-                 i < a.length;
-                 i++) {
-
-                x =
-                        Math.max(
-                                x,
-                                a[i]
-                        );
-            }
-
-            return x;
-        }
-
-        private static double recentLow(
-                double[] a,
-                int n
-        ) {
-
-            n =
-                    Math.min(
-                            n,
-                            a.length
-                    );
-
-            double x =
-                    Double.MAX_VALUE;
-
-            for (int i =
-                    a.length - n;
-                 i < a.length;
-                 i++) {
-
-                x =
-                        Math.min(
-                                x,
-                                a[i]
-                        );
-            }
-
-            return x;
-        }
-
-        private static double average(
-                double[] a
-        ) {
-
-            double s = 0;
-
-            for (double x : a) {
-                s += x;
-            }
-
-            return s / a.length;
-        }
-
-        private static boolean higherHighs(
-                List<Candle> c
-        ) {
-
-            if (c.size() < 4) {
-                return false;
-            }
-
-            int n = c.size();
-
-            return c.get(n - 1).high >
-                    c.get(n - 3).high &&
-                    c.get(n - 2).high >
-                            c.get(n - 4).high;
-        }
-
-        private static boolean lowerHighs(
-                List<Candle> c
-        ) {
-
-            if (c.size() < 4) {
-                return false;
-            }
-
-            int n = c.size();
-
-            return c.get(n - 1).high <
-                    c.get(n - 3).high &&
-                    c.get(n - 2).high <
-                            c.get(n - 4).high;
-        }
-
-        private static boolean higherLows(
-                List<Candle> c
-        ) {
-
-            if (c.size() < 4) {
-                return false;
-            }
-
-            int n = c.size();
-
-            return c.get(n - 1).low >
-                    c.get(n - 3).low &&
-                    c.get(n - 2).low >
-                            c.get(n - 4).low;
-        }
-
-        private static boolean lowerLows(
-                List<Candle> c
-        ) {
-
-            if (c.size() < 4) {
-                return false;
-            }
-
-            int n = c.size();
-
-            return c.get(n - 1).low <
-                    c.get(n - 3).low &&
-                    c.get(n - 2).low <
-                            c.get(n - 4).low;
-        }
-
-        private static boolean bullishEngulfing(
-                Candle a,
-                Candle b
-        ) {
-
-            return a.bearish() &&
-                    b.bullish() &&
-                    b.open <= a.close &&
-                    b.close >= a.open;
-        }
-
-        private static boolean bearishEngulfing(
-                Candle a,
-                Candle b
-        ) {
-
-            return a.bullish() &&
-                    b.bearish() &&
-                    b.open >= a.close &&
-                    b.close <= a.open;
-        }
-
-        private static boolean hammer(
-                Candle c
-        ) {
-
-            return lowerWick(c) >
-                    c.body() * 2 &&
-                    upperWick(c) <
-                            c.body();
-        }
-
-        private static boolean shootingStar(
-                Candle c
-        ) {
-
-            return upperWick(c) >
-                    c.body() * 2 &&
-                    lowerWick(c) <
-                            c.body();
-        }
-
-        private static boolean doji(
-                Candle c
-        ) {
-
-            return c.body() <=
-                    c.range() * .10;
-        }
-
-        private static double lowerWick(
-                Candle c
-        ) {
-
-            return Math.min(
-                    c.open,
-                    c.close
-            ) - c.low;
-        }
-
-        private static double upperWick(
-                Candle c
-        ) {
-
-            return c.high -
-                    Math.max(
-                            c.open,
-                            c.close
-                    );
-        }
-
-        private static boolean closeNearHigh(
-                Candle c
-        ) {
-
-            return closePosition(c) > .75;
-        }
-
-        private static boolean closeNearLow(
-                Candle c
-        ) {
-
-            return closePosition(c) < .25;
-        }
-
-        private static double closePosition(
-                Candle c
-        ) {
-
-            return (
-                    c.close - c.low
-            ) /
-                    c.range();
-        }
-
-        private static int bullishCount(
-                List<Candle> c,
-                int n
-        ) {
-
-            n =
-                    Math.min(
-                            n,
-                            c.size()
-                    );
-
-            int count = 0;
-
-            for (int i =
-                    c.size() - n;
-                 i < c.size();
-                 i++) {
-
-                if (c.get(i).bullish()) {
-                    count++;
-                }
-            }
-
-            return count;
-        }
-
-        private static int bearishCount(
-                List<Candle> c,
-                int n
-        ) {
-
-            n =
-                    Math.min(
-                            n,
-                            c.size()
-                    );
-
-            int count = 0;
-
-            for (int i =
-                    c.size() - n;
-                 i < c.size();
-                 i++) {
-
-                if (c.get(i).bearish()) {
-                    count++;
-                }
-            }
-
-            return count;
-        }
-
-        private static int bullishStreak(
-                List<Candle> c
-        ) {
-
-            int n = 0;
-
-            for (int i =
-                    c.size() - 1;
-                 i >= 0;
-                 i--) {
-
-                if (!c.get(i).bullish()) {
-                    break;
-                }
-
-                n++;
-            }
-
-            return n;
-        }
-
-        private static int bearishStreak(
-                List<Candle> c
-        ) {
-
-            int n = 0;
-
-            for (int i =
-                    c.size() - 1;
-                 i >= 0;
-                 i--) {
-
-                if (!c.get(i).bearish()) {
-                    break;
-                }
-
-                n++;
-            }
-
-            return n;
-        }
-
-        private static double smaSlope(
-                double[] a,
-                int period
-        ) {
-
-            if (a.length < 4) {
-                return 0;
-            }
-
-            int n =
-                    Math.min(
-                            period,
-                            a.length
-                    );
-
-            double current =
-                    sma(a, n);
-
-            double[] previous =
-                    new double[
-                            a.length - 2
-                    ];
-
-            System.arraycopy(
-                    a,
-                    0,
-                    previous,
-                    0,
-                    previous.length
-            );
-
-            double old =
-                    sma(
-                            previous,
-                            Math.min(
-                                    n,
-                                    previous.length
-                            )
-                    );
-
-            return current - old;
-        }
-
-        private static double trendConsistency(
-                double[] a
-        ) {
-
-            int bull = 0;
-            int bear = 0;
-
-            int n =
-                    Math.min(
-                            10,
-                            a.length - 1
-                    );
-
-            for (int i =
-                    a.length - n;
-                 i < a.length;
-                 i++) {
-
-                if (a[i] > a[i - 1]) {
-                    bull++;
-                } else if (a[i] < a[i - 1]) {
-                    bear++;
-                }
-            }
-
-            return bull - bear;
-        }
-
-        private static double distance(
-                double a,
-                double b
-        ) {
-
-            return Math.abs(a - b);
+            this.signal = signal;
+            this.confidence = confidence;
+            this.quality = quality;
+            this.candles = candles;
         }
     }
 }
