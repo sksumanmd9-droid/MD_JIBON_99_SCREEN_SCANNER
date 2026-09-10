@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -18,13 +19,12 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 
-import androidx.core.app.NotificationCompat;
-
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class ScreenCaptureService extends Service {
 
@@ -34,56 +34,89 @@ public class ScreenCaptureService extends Service {
     public static final String ACTION_PROGRESS =
             "MDJIBON_SCAN_PROGRESS";
 
-    private static final String CHANNEL =
-            "MDJIBON_CAPTURE";
+    public static final String ACTION_CAPTURE_STATE =
+            "MDJIBON_CAPTURE_STATE";
 
-    private static MediaProjection projection;
+    public static final String ACTION_SCAN =
+            "MDJIBON_SCAN_NOW";
+
+    public static final String ACTION_STOP =
+            "MDJIBON_CAPTURE_STOP";
+
+    private static final String CHANNEL_ID =
+            "md_jibon_scanner";
+
+    private static final int NOTIFICATION_ID =
+            9901;
+
+    private static volatile boolean captureActive =
+            false;
+
+    private MediaProjection mediaProjection;
 
     private VirtualDisplay virtualDisplay;
 
     private ImageReader imageReader;
 
-    private Bitmap latestBitmap;
+    private Bitmap latestFrame;
 
-    private Handler handler =
-            new Handler(Looper.getMainLooper());
+    private final Object frameLock =
+            new Object();
 
-    private boolean scanning = false;
+    private int width;
+    private int height;
+    private int density;
 
-    private int screenWidth;
+    private long lastFrameCopyTime = 0;
 
-    private int screenHeight;
+    private final Handler mainHandler =
+            new Handler(
+                    Looper.getMainLooper()
+            );
 
-    private int screenDensity;
+    private final ExecutorService executor =
+            Executors.newSingleThreadExecutor();
+
+    private volatile boolean scanning =
+            false;
+
+    private int progress = 0;
+
+    private final Runnable progressRunnable =
+            new Runnable() {
+
+                @Override
+                public void run() {
+
+                    if (!scanning) {
+                        return;
+                    }
+
+                    progress =
+                            Math.min(
+                                    100,
+                                    progress + 2
+                            );
+
+                    sendProgress(progress);
+
+                    if (progress < 100) {
+
+                        mainHandler.postDelayed(
+                                this,
+                                35
+                        );
+                    }
+                }
+            };
+
+    public static boolean isCaptureActive() {
+        return captureActive;
+    }
 
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
-
-    public static boolean isCaptureRunning() {
-        return projection != null;
-    }
-
-    @Override
-    public void onCreate() {
-
-        super.onCreate();
-
-        createNotificationChannel();
-
-        android.util.DisplayMetrics dm =
-                getResources()
-                        .getDisplayMetrics();
-
-        screenWidth =
-                dm.widthPixels;
-
-        screenHeight =
-                dm.heightPixels;
-
-        screenDensity =
-                dm.densityDpi;
     }
 
     @Override
@@ -93,25 +126,35 @@ public class ScreenCaptureService extends Service {
             int startId
     ) {
 
-        if (intent == null)
-            return START_NOT_STICKY;
+        if (intent == null) {
+            return START_STICKY;
+        }
 
-        if ("SCAN_NOW".equals(intent.getAction())) {
+        String action =
+                intent.getAction();
 
-            scanNow();
+        if (ACTION_STOP.equals(action)) {
+
+            stopCapture();
+
+            stopSelf();
 
             return START_NOT_STICKY;
         }
 
-        if (
-                intent.hasExtra("code") &&
-                intent.hasExtra("data")
-        ) {
+        if (ACTION_SCAN.equals(action)) {
 
-            int code =
+            requestScan();
+
+            return START_STICKY;
+        }
+
+        if (intent.hasExtra("data")) {
+
+            int resultCode =
                     intent.getIntExtra(
-                            "code",
-                            -1
+                            "resultCode",
+                            0
                     );
 
             Intent data =
@@ -119,18 +162,13 @@ public class ScreenCaptureService extends Service {
                             "data"
                     );
 
-            if (
-                    code == -1 ||
-                    data == null
-            ) {
+            if (data != null) {
 
-                return START_NOT_STICKY;
+                startCapture(
+                        resultCode,
+                        data
+                );
             }
-
-            startCapture(
-                    code,
-                    data
-            );
         }
 
         return START_STICKY;
@@ -141,19 +179,22 @@ public class ScreenCaptureService extends Service {
             Intent data
     ) {
 
-        if (projection != null)
+        if (captureActive) {
             return;
+        }
+
+        createNotificationChannel();
 
         Notification notification =
-                new NotificationCompat.Builder(
+                new Notification.Builder(
                         this,
-                        CHANNEL
+                        CHANNEL_ID
                 )
                         .setContentTitle(
                                 "MD JIBON Screen Scanner"
                         )
                         .setContentText(
-                                "Screen Capture active"
+                                "Screen scanning is active"
                         )
                         .setSmallIcon(
                                 android.R.drawable.ic_menu_view
@@ -161,21 +202,30 @@ public class ScreenCaptureService extends Service {
                         .setOngoing(true)
                         .build();
 
-        if (Build.VERSION.SDK_INT >= 29) {
+        try {
 
-            startForeground(
-                    8001,
-                    notification,
-                    android.content.pm.ServiceInfo
-                            .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            );
+            if (Build.VERSION.SDK_INT >= 29) {
 
-        } else {
+                startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        android.content.pm.ServiceInfo
+                                .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                );
 
-            startForeground(
-                    8001,
-                    notification
-            );
+            } else {
+
+                startForeground(
+                        NOTIFICATION_ID,
+                        notification
+                );
+            }
+
+        } catch (Exception e) {
+
+            sendState(false);
+            stopSelf();
+            return;
         }
 
         MediaProjectionManager manager =
@@ -184,154 +234,235 @@ public class ScreenCaptureService extends Service {
                                 MEDIA_PROJECTION_SERVICE
                         );
 
-        projection =
-                manager.getMediaProjection(
-                        resultCode,
-                        data
-                );
-
-        if (projection == null)
+        if (manager == null) {
+            stopSelf();
             return;
+        }
 
-        projection.registerCallback(
-                new MediaProjection.Callback() {
+        try {
 
-                    @Override
-                    public void onStop() {
+            mediaProjection =
+                    manager.getMediaProjection(
+                            resultCode,
+                            data
+                    );
 
-                        stopCapture();
+            if (mediaProjection == null) {
 
-                        super.onStop();
-                    }
-                },
-                handler
-        );
+                stopSelf();
+                return;
+            }
 
-        createReader();
+            mediaProjection.registerCallback(
+                    new MediaProjection.Callback() {
+
+                        @Override
+                        public void onStop() {
+
+                            releaseProjection();
+
+                            sendState(false);
+                        }
+                    },
+                    mainHandler
+            );
+
+            width =
+                    getResources()
+                            .getDisplayMetrics()
+                            .widthPixels;
+
+            height =
+                    getResources()
+                            .getDisplayMetrics()
+                            .heightPixels;
+
+            density =
+                    getResources()
+                            .getDisplayMetrics()
+                            .densityDpi;
+
+            imageReader =
+                    ImageReader.newInstance(
+                            width,
+                            height,
+                            android.graphics.PixelFormat
+                                    .RGBA_8888,
+                            2
+                    );
+
+            imageReader.setOnImageAvailableListener(
+                    reader -> copyLatestImage(reader),
+                    mainHandler
+            );
+
+            virtualDisplay =
+                    mediaProjection.createVirtualDisplay(
+                            "MD_JIBON_SCANNER",
+                            width,
+                            height,
+                            density,
+                            DisplayManager
+                                    .VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                            imageReader.getSurface(),
+                            null,
+                            mainHandler
+                    );
+
+            captureActive = true;
+
+            sendState(true);
+
+        } catch (Exception e) {
+
+            releaseProjection();
+
+            sendState(false);
+
+            stopSelf();
+        }
     }
 
-    private void createReader() {
+    private void copyLatestImage(
+            ImageReader reader
+    ) {
 
-        imageReader =
-                ImageReader.newInstance(
-                        screenWidth,
-                        screenHeight,
-                        android.graphics.PixelFormat.RGBA_8888,
-                        2
-                );
+        Image image = null;
 
-        imageReader.setOnImageAvailableListener(
-                reader -> {
+        try {
 
-                    Image image = null;
+            image =
+                    reader.acquireLatestImage();
 
-                    try {
+            if (image == null) {
+                return;
+            }
 
-                        image =
-                                reader.acquireLatestImage();
+            long now =
+                    System.currentTimeMillis();
 
-                        if (image == null)
-                            return;
+            if (now -
+                    lastFrameCopyTime <
+                    120) {
 
-                        Image.Plane[] planes =
-                                image.getPlanes();
+                return;
+            }
 
-                        if (
-                                planes == null ||
-                                planes.length == 0
-                        )
-                            return;
+            lastFrameCopyTime = now;
 
-                        ByteBuffer buffer =
-                                planes[0].getBuffer();
+            Image.Plane[] planes =
+                    image.getPlanes();
 
-                        int pixelStride =
-                                planes[0]
-                                        .getPixelStride();
+            if (planes.length == 0) {
+                return;
+            }
 
-                        int rowStride =
-                                planes[0]
-                                        .getRowStride();
+            ByteBuffer buffer =
+                    planes[0].getBuffer();
 
-                        int rowPadding =
-                                rowStride -
-                                        pixelStride *
-                                                screenWidth;
+            int pixelStride =
+                    planes[0].getPixelStride();
 
-                        int bitmapWidth =
-                                screenWidth +
-                                        rowPadding /
-                                                pixelStride;
+            int rowStride =
+                    planes[0].getRowStride();
 
-                        Bitmap bitmap =
-                                Bitmap.createBitmap(
-                                        bitmapWidth,
-                                        screenHeight,
-                                        Bitmap.Config
-                                                .ARGB_8888
-                                );
+            int rowPadding =
+                    rowStride -
+                    pixelStride * width;
 
-                        bitmap.copyPixelsFromBuffer(
-                                buffer
-                        );
+            int bitmapWidth =
+                    width +
+                    rowPadding /
+                            pixelStride;
 
-                        if (latestBitmap != null) {
+            Bitmap raw =
+                    Bitmap.createBitmap(
+                            bitmapWidth,
+                            height,
+                            Bitmap.Config.ARGB_8888
+                    );
 
-                            latestBitmap.recycle();
-                        }
+            raw.copyPixelsFromBuffer(
+                    buffer
+            );
 
-                        latestBitmap =
-                                Bitmap.createBitmap(
-                                        bitmap,
-                                        0,
-                                        0,
-                                        screenWidth,
-                                        screenHeight
-                                );
+            Bitmap cropped =
+                    Bitmap.createBitmap(
+                            raw,
+                            0,
+                            0,
+                            width,
+                            height
+                    );
 
-                        bitmap.recycle();
+            raw.recycle();
 
-                    } catch (Exception ignored) {
+            synchronized (frameLock) {
 
-                    } finally {
+                if (latestFrame != null) {
+                    latestFrame.recycle();
+                }
 
-                        if (image != null) {
-                            image.close();
-                        }
-                    }
-                },
-                handler
-        );
+                latestFrame = cropped;
+            }
 
-        virtualDisplay =
-                projection.createVirtualDisplay(
-                        "MDJIBON_SCANNER",
-                        screenWidth,
-                        screenHeight,
-                        screenDensity,
-                        DisplayManager
-                                .VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                        imageReader.getSurface(),
-                        null,
-                        handler
-                );
+        } catch (Exception ignored) {
+
+        } finally {
+
+            if (image != null) {
+                image.close();
+            }
+        }
     }
 
-    private void scanNow() {
+    private Bitmap getFrameCopy() {
 
-        if (scanning)
-            return;
+        synchronized (frameLock) {
 
-        if (
-                projection == null ||
-                latestBitmap == null
-        ) {
+            if (latestFrame == null) {
+                return null;
+            }
+
+            return latestFrame.copy(
+                    Bitmap.Config.ARGB_8888,
+                    false
+            );
+        }
+    }
+
+    private void requestScan() {
+
+        if (!captureActive) {
 
             sendResult(
                     "NO TRADE",
                     0,
                     0,
-                    0
+                    0,
+                    "1 MIN",
+                    "UNKNOWN"
+            );
+
+            return;
+        }
+
+        if (scanning) {
+            return;
+        }
+
+        final Bitmap frame =
+                getFrameCopy();
+
+        if (frame == null) {
+
+            sendResult(
+                    "NO TRADE",
+                    0,
+                    0,
+                    0,
+                    getTimeframe(),
+                    "UNKNOWN"
             );
 
             return;
@@ -339,1273 +470,104 @@ public class ScreenCaptureService extends Service {
 
         scanning = true;
 
-        new Thread(() -> {
+        progress = 0;
 
-            Bitmap frame = latestBitmap;
+        sendProgress(0);
 
-            if (frame == null) {
-
-                scanning = false;
-
-                sendResult(
-                        "NO TRADE",
-                        0,
-                        0,
-                        0
-                );
-
-                return;
-            }
-
-            for (int p = 0; p <= 100; p += 5) {
-
-                final int progress = p;
-
-                handler.post(
-                        () -> sendProgress(
-                                progress
-                        )
-                );
-
-                try {
-                    Thread.sleep(45);
-                } catch (InterruptedException ignored) {
-                }
-            }
-
-            AnalysisResult result =
-                    analyze(frame);
-
-            handler.post(() -> {
-
-                scanning = false;
-
-                sendResult(
-                        result.signal,
-                        result.confidence,
-                        result.quality,
-                        result.candles
-                );
-            });
-
-        }).start();
-    }
-
-    private AnalysisResult analyze(
-            Bitmap bitmap
-    ) {
-
-        int w = bitmap.getWidth();
-
-        int h = bitmap.getHeight();
-
-        int left =
-                (int) (w * 0.05f);
-
-        int right =
-                (int) (w * 0.95f);
-
-        int top =
-                (int) (h * 0.20f);
-
-        int bottom =
-                (int) (h * 0.78f);
-
-        List<Candle> candles =
-                detectCandles(
-                        bitmap,
-                        left,
-                        top,
-                        right,
-                        bottom
-                );
-
-        if (candles.size() < 8) {
-
-            int q =
-                    Math.min(
-                            40,
-                            candles.size() * 5
-                    );
-
-            return new AnalysisResult(
-                    "NO TRADE",
-                    0,
-                    q,
-                    candles.size()
-            );
-        }
-
-        Collections.sort(
-                candles,
-                Comparator.comparingInt(
-                        a -> a.x
-                )
+        mainHandler.removeCallbacks(
+                progressRunnable
         );
 
-        if (candles.size() > 80) {
-
-            candles =
-                    new ArrayList<>(
-                            candles.subList(
-                                    candles.size() - 80,
-                                    candles.size()
-                            )
-                    );
-        }
-
-        int up = 0;
-
-        int down = 0;
-
-        for (int rule = 1; rule <= 100; rule++) {
-
-            int vote =
-                    ruleVote(
-                            rule,
-                            candles
-                    );
-
-            if (vote > 0)
-                up++;
-
-            if (vote < 0)
-                down++;
-        }
-
-        int total =
-                up + down;
-
-        if (total < 15) {
-
-            return new AnalysisResult(
-                    "NO TRADE",
-                    0,
-                    frameQuality(candles),
-                    candles.size()
-            );
-        }
-
-        int confidence =
-                Math.round(
-                        100f *
-                                Math.max(
-                                        up,
-                                        down
-                                )
-                                / 100f
-                );
-
-        String signal;
-
-        if (
-                up >= 58 &&
-                up > down + 5
-        ) {
-
-            signal = "UP";
-
-        } else if (
-                down >= 58 &&
-                down > up + 5
-        ) {
-
-            signal = "DOWN";
-
-        } else {
-
-            signal = "NO TRADE";
-            confidence = 0;
-        }
-
-        return new AnalysisResult(
-                signal,
-                confidence,
-                frameQuality(candles),
-                candles.size()
+        mainHandler.post(
+                progressRunnable
         );
-    }
 
-    private List<Candle> detectCandles(
-            Bitmap b,
-            int left,
-            int top,
-            int right,
-            int bottom
-    ) {
+        executor.execute(
+                () -> {
 
-        ArrayList<Candle> list =
-                new ArrayList<>();
+                    ScanResult result;
 
-        int width =
-                right - left;
+                    try {
 
-        int[] red =
-                new int[width];
-
-        int[] green =
-                new int[width];
-
-        for (int x = left; x < right; x++) {
-
-            int rCount = 0;
-            int gCount = 0;
-
-            for (
-                    int y = top;
-                    y < bottom;
-                    y += 3
-            ) {
-
-                int c =
-                        b.getPixel(x, y);
-
-                int r =
-                        Color.red(c);
-
-                int g =
-                        Color.green(c);
-
-                int bl =
-                        Color.blue(c);
-
-                if (
-                        g > r * 1.30f &&
-                        g > bl * 1.20f &&
-                        g > 70
-                ) {
-
-                    gCount++;
-
-                } else if (
-                        r > g * 1.25f &&
-                        r > bl * 1.20f &&
-                        r > 70
-                ) {
-
-                    rCount++;
-                }
-            }
-
-            red[x - left] = rCount;
-            green[x - left] = gCount;
-        }
-
-        int x = 0;
-
-        while (x < width) {
-
-            int score =
-                    red[x] +
-                            green[x];
-
-            if (score < 4) {
-
-                x++;
-                continue;
-            }
-
-            int start = x;
-
-            int end = x;
-
-            int rTotal = 0;
-            int gTotal = 0;
-
-            while (
-                    end < width &&
-                    (
-                            red[end] +
-                                    green[end] >= 3 ||
-                            end - start < 2
-                    )
-            ) {
-
-                rTotal += red[end];
-                gTotal += green[end];
-
-                end++;
-
-                if (end - start > 18)
-                    break;
-            }
-
-            int center =
-                    left +
-                            (start + end) / 2;
-
-            boolean isGreen =
-                    gTotal >= rTotal;
-
-            int topY = bottom;
-
-            int bottomY = top;
-
-            int bodyTop = bottom;
-
-            int bodyBottom = top;
-
-            int samples = 0;
-
-            for (
-                    int xx = Math.max(
-                            left,
-                            center - 8
-                    );
-                    xx < Math.min(
-                            right,
-                            center + 9
-                    );
-                    xx++
-            ) {
-
-                for (
-                        int yy = top;
-                        yy < bottom;
-                        yy += 2
-                ) {
-
-                    int c =
-                            b.getPixel(
-                                    xx,
-                                    yy
-                            );
-
-                    int r =
-                            Color.red(c);
-
-                    int g =
-                            Color.green(c);
-
-                    int bl =
-                            Color.blue(c);
-
-                    boolean good =
-                            isGreen
-                                    ? (
-                                    g > r * 1.25f &&
-                                    g > bl * 1.15f &&
-                                    g > 60
-                            )
-                                    : (
-                                    r > g * 1.20f &&
-                                    r > bl * 1.15f &&
-                                    r > 60
-                            );
-
-                    if (good) {
-
-                        topY =
-                                Math.min(
-                                        topY,
-                                        yy
+                        result =
+                                Analyzer.analyze(
+                                        frame
                                 );
 
-                        bottomY =
-                                Math.max(
-                                        bottomY,
-                                        yy
-                                );
+                    } catch (Exception e) {
 
-                        samples++;
+                        result =
+                                new ScanResult(
+                                        "NO TRADE",
+                                        0,
+                                        0,
+                                        0,
+                                        "UNKNOWN"
+                                );
                     }
+
+                    frame.recycle();
+
+                    finishScan(result);
                 }
-            }
-
-            if (samples >= 5) {
-
-                float high =
-                        bottom - topY;
-
-                float low =
-                        bottom - bottomY;
-
-                float open;
-                float close;
-
-                if (isGreen) {
-
-                    open =
-                            bottom - bottomY;
-
-                    close =
-                            bottom - topY;
-
-                } else {
-
-                    open =
-                            bottom - topY;
-
-                    close =
-                            bottom - bottomY;
-                }
-
-                if (high > low) {
-
-                    list.add(
-                            new Candle(
-                                    center,
-                                    open,
-                                    close,
-                                    high,
-                                    low,
-                                    isGreen
-                            )
-                    );
-                }
-            }
-
-            x =
-                    Math.max(
-                            end + 1,
-                            x + 1
-                    );
-        }
-
-        return list;
+        );
     }
 
-    private int ruleVote(
-            int rule,
-            List<Candle> c
+    private void finishScan(
+            ScanResult result
     ) {
 
-        int n = c.size();
+        mainHandler.post(
+                () -> {
 
-        Candle last =
-                c.get(n - 1);
-
-        Candle prev =
-                c.get(n - 2);
-
-        float close =
-                last.close;
-
-        float prevClose =
-                prev.close;
-
-        float change =
-                close - prevClose;
-
-        /*
-         * 1-10: Recent price action
-         */
-
-        if (rule <= 10) {
-
-            int k =
-                    rule % 5 + 2;
-
-            float sum = 0;
-
-            for (
-                    int i = n - k;
-                    i < n;
-                    i++
-            ) {
-
-                sum +=
-                        c.get(i).close -
-                                c.get(i).open;
-            }
-
-            if (sum > 0)
-                return 1;
-
-            if (sum < 0)
-                return -1;
-
-            return 0;
-        }
-
-        /*
-         * 11-20: Moving averages
-         */
-
-        if (rule <= 20) {
-
-            int fast =
-                    3 +
-                            (rule % 5);
-
-            int slow =
-                    8 +
-                            (rule % 7);
-
-            float f =
-                    smaClose(
-                            c,
-                            fast
-                    );
-
-            float s =
-                    smaClose(
-                            c,
-                            slow
-                    );
-
-            if (f > s && close > f)
-                return 1;
-
-            if (f < s && close < f)
-                return -1;
-
-            return 0;
-        }
-
-        /*
-         * 21-30: RSI
-         */
-
-        if (rule <= 30) {
-
-            int period =
-                    5 +
-                            rule % 6;
-
-            float rsi =
-                    rsi(
-                            c,
-                            period
-                    );
-
-            if (rsi < 35)
-                return 1;
-
-            if (rsi > 65)
-                return -1;
-
-            if (
-                    rsi > 50 &&
-                            close > prevClose
-            )
-                return 1;
-
-            if (
-                    rsi < 50 &&
-                            close < prevClose
-            )
-                return -1;
-
-            return 0;
-        }
-
-        /*
-         * 31-40: MACD style momentum
-         */
-
-        if (rule <= 40) {
-
-            int fast =
-                    5 + rule % 4;
-
-            int slow =
-                    12 + rule % 5;
-
-            int signal =
-                    4 + rule % 3;
-
-            float f =
-                    emaClose(
-                            c,
-                            fast
-                    );
-
-            float s =
-                    emaClose(
-                            c,
-                            slow
-                    );
-
-            float macd =
-                    f - s;
-
-            float previous =
-                    emaAtDifference(
-                            c,
-                            slow,
-                            signal
-                    );
-
-            if (
-                    macd > previous &&
-                            macd > 0
-            )
-                return 1;
-
-            if (
-                    macd < previous &&
-                            macd < 0
-            )
-                return -1;
-
-            return 0;
-        }
-
-        /*
-         * 41-50: Bollinger
-         */
-
-        if (rule <= 50) {
-
-            int p =
-                    8 + rule % 6;
-
-            float mean =
-                    smaClose(c, p);
-
-            float sd =
-                    stdClose(c, p);
-
-            float upper =
-                    mean + 2f * sd;
-
-            float lower =
-                    mean - 2f * sd;
-
-            if (close <= lower)
-                return 1;
-
-            if (close >= upper)
-                return -1;
-
-            if (close > mean)
-                return 1;
-
-            if (close < mean)
-                return -1;
-
-            return 0;
-        }
-
-        /*
-         * 51-60: Stochastic
-         */
-
-        if (rule <= 60) {
-
-            int p =
-                    5 + rule % 6;
-
-            float st =
-                    stochastic(
-                            c,
-                            p
-                    );
-
-            if (st < 20)
-                return 1;
-
-            if (st > 80)
-                return -1;
-
-            if (st > 50)
-                return 1;
-
-            if (st < 50)
-                return -1;
-
-            return 0;
-        }
-
-        /*
-         * 61-70: Candle body / wick logic
-         */
-
-        if (rule <= 70) {
-
-            float body =
-                    Math.abs(
-                            last.close -
-                                    last.open
-                    );
-
-            float range =
-                    Math.max(
-                            0.001f,
-                            last.high -
-                                    last.low
-                    );
-
-            float ratio =
-                    body / range;
-
-            if (
-                    last.green &&
-                            ratio > 0.55f
-            )
-                return 1;
-
-            if (
-                    !last.green &&
-                            ratio > 0.55f
-            )
-                return -1;
-
-            float upper =
-                    last.high -
+                    int delay =
                             Math.max(
-                                    last.open,
-                                    last.close
+                                    0,
+                                    1000
+                                            - progress *
+                                            35
                             );
 
-            float lower =
-                    Math.min(
-                            last.open,
-                            last.close
-                    ) -
-                            last.low;
+                    mainHandler.postDelayed(
+                            () -> {
 
-            if (lower > upper * 1.5f)
-                return 1;
+                                progress = 100;
 
-            if (upper > lower * 1.5f)
-                return -1;
+                                sendProgress(
+                                        100
+                                );
 
-            return 0;
-        }
+                                scanning = false;
 
-        /*
-         * 71-80: Support / resistance
-         */
+                                sendResult(
+                                        result.signal,
+                                        result.confidence,
+                                        result.quality,
+                                        result.candles,
+                                        getTimeframe(),
+                                        result.candleSize
+                                );
 
-        if (rule <= 80) {
-
-            int p =
-                    10 + rule % 10;
-
-            float highest =
-                    highest(
-                            c,
-                            p
+                            },
+                            delay
                     );
-
-            float lowest =
-                    lowest(
-                            c,
-                            p
-                    );
-
-            float distanceHigh =
-                    Math.abs(
-                            highest - close
-                    );
-
-            float distanceLow =
-                    Math.abs(
-                            close - lowest
-                    );
-
-            if (
-                    distanceLow <
-                            distanceHigh * 0.65f
-            )
-                return 1;
-
-            if (
-                    distanceHigh <
-                            distanceLow * 0.65f
-            )
-                return -1;
-
-            return 0;
-        }
-
-        /*
-         * 81-90: Volatility / ATR
-         */
-
-        if (rule <= 90) {
-
-            int p =
-                    5 + rule % 7;
-
-            float atr =
-                    atr(
-                            c,
-                            p
-                    );
-
-            float body =
-                    Math.abs(
-                            last.close -
-                                    last.open
-                    );
-
-            if (
-                    body > atr * 0.7f &&
-                            change > 0
-            )
-                return 1;
-
-            if (
-                    body > atr * 0.7f &&
-                            change < 0
-            )
-                return -1;
-
-            return 0;
-        }
-
-        /*
-         * 91-100: Multi-confirmation
-         */
-
-        float ma =
-                smaClose(c, 10);
-
-        float r =
-                rsi(c, 10);
-
-        float st =
-                stochastic(c, 10);
-
-        float e =
-                emaClose(c, 12);
-
-        int score = 0;
-
-        if (close > ma)
-            score++;
-
-        else
-            score--;
-
-        if (r > 50)
-            score++;
-
-        else
-            score--;
-
-        if (st > 50)
-            score++;
-
-        else
-            score--;
-
-        if (close > e)
-            score++;
-
-        else
-            score--;
-
-        if (
-                last.green &&
-                        prev.green
-        )
-            score++;
-
-        if (
-                !last.green &&
-                        !prev.green
-        )
-            score--;
-
-        if (score >= 2)
-            return 1;
-
-        if (score <= -2)
-            return -1;
-
-        return 0;
+                }
+        );
     }
 
-    private float smaClose(
-            List<Candle> c,
-            int period
-    ) {
-
-        int start =
-                Math.max(
-                        0,
-                        c.size() - period
-                );
-
-        float sum = 0;
-
-        int count = 0;
-
-        for (
-                int i = start;
-                i < c.size();
-                i++
-        ) {
-
-            sum += c.get(i).close;
-
-            count++;
-        }
-
-        return count == 0
-                ? 0
-                : sum / count;
-    }
-
-    private float emaClose(
-            List<Candle> c,
-            int period
-    ) {
-
-        if (c.isEmpty())
-            return 0;
-
-        float alpha =
-                2f /
-                        (period + 1f);
-
-        float ema =
-                c.get(0).close;
-
-        for (
-                int i = 1;
-                i < c.size();
-                i++
-        ) {
-
-            ema =
-                    alpha *
-                            c.get(i).close +
-                            (1f - alpha) *
-                                    ema;
-        }
-
-        return ema;
-    }
-
-    private float emaAtDifference(
-            List<Candle> c,
-            int slow,
-            int signal
-    ) {
-
-        int start =
-                Math.max(
-                        0,
-                        c.size() -
-                                signal -
-                                2
-                );
-
-        float sum = 0;
-
-        int count = 0;
-
-        for (
-                int i = start;
-                i < c.size();
-                i++
-        ) {
-
-            float fast =
-                    emaCloseAt(
-                            c,
-                            i,
-                            5
-                    );
-
-            float slowEma =
-                    emaCloseAt(
-                            c,
-                            i,
-                            slow
-                    );
-
-            sum +=
-                    fast -
-                            slowEma;
-
-            count++;
-        }
-
-        return count == 0
-                ? 0
-                : sum / count;
-    }
-
-    private float emaCloseAt(
-            List<Candle> c,
-            int index,
-            int period
-    ) {
-
-        int start =
-                Math.max(
-                        0,
-                        index - period * 3
-                );
-
-        float alpha =
-                2f /
-                        (period + 1f);
-
-        float ema =
-                c.get(start).close;
-
-        for (
-                int i = start + 1;
-                i <= index;
-                i++
-        ) {
-
-            ema =
-                    alpha *
-                            c.get(i).close +
-                            (1f - alpha) *
-                                    ema;
-        }
-
-        return ema;
-    }
-
-    private float rsi(
-            List<Candle> c,
-            int period
-    ) {
-
-        if (c.size() < period + 1)
-            return 50;
-
-        float gain = 0;
-
-        float loss = 0;
-
-        int start =
-                c.size() - period;
-
-        for (
-                int i = start;
-                i < c.size();
-                i++
-        ) {
-
-            float d =
-                    c.get(i).close -
-                            c.get(i - 1).close;
-
-            if (d > 0)
-                gain += d;
-
-            else
-                loss -= d;
-        }
-
-        if (loss == 0)
-            return 100;
-
-        float rs =
-                gain / loss;
-
-        return 100f -
-                100f /
-                        (1f + rs);
-    }
-
-    private float stochastic(
-            List<Candle> c,
-            int period
-    ) {
-
-        float high =
-                highest(
-                        c,
-                        period
-                );
-
-        float low =
-                lowest(
-                        c,
-                        period
-                );
-
-        float close =
-                c.get(
-                        c.size() - 1
-                ).close;
-
-        if (high == low)
-            return 50;
-
-        return
-                100f *
-                        (close - low) /
-                        (high - low);
-    }
-
-    private float highest(
-            List<Candle> c,
-            int period
-    ) {
-
-        int start =
-                Math.max(
-                        0,
-                        c.size() - period
-                );
-
-        float v =
-                Float.NEGATIVE_INFINITY;
-
-        for (
-                int i = start;
-                i < c.size();
-                i++
-        ) {
-
-            v =
-                    Math.max(
-                            v,
-                            c.get(i).high
-                    );
-        }
-
-        return v;
-    }
-
-    private float lowest(
-            List<Candle> c,
-            int period
-    ) {
-
-        int start =
-                Math.max(
-                        0,
-                        c.size() - period
-                );
-
-        float v =
-                Float.POSITIVE_INFINITY;
-
-        for (
-                int i = start;
-                i < c.size();
-                i++
-        ) {
-
-            v =
-                    Math.min(
-                            v,
-                            c.get(i).low
-                    );
-        }
-
-        return v;
-    }
-
-    private float stdClose(
-            List<Candle> c,
-            int period
-    ) {
-
-        float mean =
-                smaClose(
-                        c,
-                        period
-                );
-
-        int start =
-                Math.max(
-                        0,
-                        c.size() - period
-                );
-
-        float sum = 0;
-
-        int count = 0;
-
-        for (
-                int i = start;
-                i < c.size();
-                i++
-        ) {
-
-            float d =
-                    c.get(i).close -
-                            mean;
-
-            sum += d * d;
-
-            count++;
-        }
-
-        return count == 0
-                ? 0
-                : (float)
-                        Math.sqrt(
-                                sum / count
-                        );
-    }
-
-    private float atr(
-            List<Candle> c,
-            int period
-    ) {
-
-        int start =
-                Math.max(
-                        1,
-                        c.size() - period
-                );
-
-        float sum = 0;
-
-        int count = 0;
-
-        for (
-                int i = start;
-                i < c.size();
-                i++
-        ) {
-
-            Candle x =
-                    c.get(i);
-
-            Candle p =
-                    c.get(i - 1);
-
-            float tr =
-                    Math.max(
-                            x.high -
-                                    x.low,
-                            Math.max(
-                                    Math.abs(
-                                            x.high -
-                                                    p.close
-                                    ),
-                                    Math.abs(
-                                            x.low -
-                                                    p.close
-                                    )
-                            )
-                    );
-
-            sum += tr;
-
-            count++;
-        }
-
-        return count == 0
-                ? 0
-                : sum / count;
-    }
-
-    private int frameQuality(
-            List<Candle> candles
-    ) {
-
-        int q =
-                candles.size() * 6;
-
-        return Math.min(
-                100,
-                Math.max(
-                        0,
-                        q
-                )
+    private String getTimeframe() {
+
+        return getSharedPreferences(
+                "scanner_settings",
+                MODE_PRIVATE
+        ).getString(
+                "timeframe",
+                "1 MIN"
         );
     }
 
     private void sendProgress(
-            int progress
+            int value
     ) {
 
         Intent i =
@@ -1619,7 +581,28 @@ public class ScreenCaptureService extends Service {
 
         i.putExtra(
                 "progress",
-                progress
+                value
+        );
+
+        sendBroadcast(i);
+    }
+
+    private void sendState(
+            boolean active
+    ) {
+
+        Intent i =
+                new Intent(
+                        ACTION_CAPTURE_STATE
+                );
+
+        i.setPackage(
+                getPackageName()
+        );
+
+        i.putExtra(
+                "active",
+                active
         );
 
         sendBroadcast(i);
@@ -1629,96 +612,74 @@ public class ScreenCaptureService extends Service {
             String signal,
             int confidence,
             int quality,
-            int candles
+            int candles,
+            String timeframe,
+            String candleSize
     ) {
 
-        Intent result =
+        Intent i =
                 new Intent(
                         ACTION_RESULT
                 );
 
-        result.setPackage(
+        i.setPackage(
                 getPackageName()
         );
 
-        result.putExtra(
+        i.putExtra(
                 "signal",
                 signal
         );
 
-        result.putExtra(
+        i.putExtra(
                 "confidence",
                 confidence
         );
 
-        result.putExtra(
+        i.putExtra(
                 "quality",
                 quality
         );
 
-        result.putExtra(
+        i.putExtra(
                 "ruleCount",
                 100
         );
 
-        result.putExtra(
+        i.putExtra(
                 "detectedCandles",
                 candles
         );
 
-        sendBroadcast(result);
-    }
+        i.putExtra(
+                "timeframe",
+                timeframe
+        );
 
-    private void stopCapture() {
+        i.putExtra(
+                "candleSize",
+                candleSize
+        );
 
-        if (virtualDisplay != null) {
-
-            try {
-                virtualDisplay.release();
-            } catch (Exception ignored) {
-            }
-
-            virtualDisplay = null;
-        }
-
-        if (imageReader != null) {
-
-            try {
-                imageReader.close();
-            } catch (Exception ignored) {
-            }
-
-            imageReader = null;
-        }
-
-        if (latestBitmap != null) {
-
-            try {
-                latestBitmap.recycle();
-            } catch (Exception ignored) {
-            }
-
-            latestBitmap = null;
-        }
-
-        projection = null;
+        sendBroadcast(i);
     }
 
     private void createNotificationChannel() {
 
         if (Build.VERSION.SDK_INT >= 26) {
 
+            NotificationManager manager =
+                    (NotificationManager)
+                            getSystemService(
+                                    NOTIFICATION_SERVICE
+                            );
+
             NotificationChannel channel =
                     new NotificationChannel(
-                            CHANNEL,
-                            "Screen Capture",
+                            CHANNEL_ID,
+                            "MD JIBON Screen Scanner",
                             NotificationManager
                                     .IMPORTANCE_LOW
-                    );
-
-            NotificationManager manager =
-                    getSystemService(
-                            NotificationManager.class
                     );
 
             manager.createNotificationChannel(
@@ -1727,67 +688,1880 @@ public class ScreenCaptureService extends Service {
         }
     }
 
+    private void releaseProjection() {
+
+        captureActive = false;
+
+        try {
+            if (virtualDisplay != null) {
+                virtualDisplay.release();
+            }
+        } catch (Exception ignored) {
+        }
+
+        virtualDisplay = null;
+
+        try {
+            if (imageReader != null) {
+                imageReader.close();
+            }
+        } catch (Exception ignored) {
+        }
+
+        imageReader = null;
+
+        try {
+            if (mediaProjection != null) {
+                mediaProjection.stop();
+            }
+        } catch (Exception ignored) {
+        }
+
+        mediaProjection = null;
+
+        synchronized (frameLock) {
+
+            if (latestFrame != null) {
+                latestFrame.recycle();
+                latestFrame = null;
+            }
+        }
+    }
+
+    private void stopCapture() {
+
+        scanning = false;
+
+        mainHandler.removeCallbacks(
+                progressRunnable
+        );
+
+        releaseProjection();
+
+        sendState(false);
+
+        try {
+            stopForeground(true);
+        } catch (Exception ignored) {
+        }
+    }
+
     @Override
     public void onDestroy() {
 
         stopCapture();
 
+        executor.shutdownNow();
+
         super.onDestroy();
     }
 
-    private static class Candle {
-
-        int x;
-
-        float open;
-
-        float close;
-
-        float high;
-
-        float low;
-
-        boolean green;
-
-        Candle(
-                int x,
-                float open,
-                float close,
-                float high,
-                float low,
-                boolean green
-        ) {
-
-            this.x = x;
-            this.open = open;
-            this.close = close;
-            this.high = high;
-            this.low = low;
-            this.green = green;
-        }
-    }
-
-    private static class AnalysisResult {
+    private static class ScanResult {
 
         String signal;
-
         int confidence;
-
         int quality;
-
         int candles;
+        String candleSize;
 
-        AnalysisResult(
+        ScanResult(
                 String signal,
                 int confidence,
                 int quality,
-                int candles
+                int candles,
+                String candleSize
         ) {
 
             this.signal = signal;
             this.confidence = confidence;
             this.quality = quality;
             this.candles = candles;
+            this.candleSize = candleSize;
+        }
+    }
+
+    private static class Candle {
+
+        double open;
+        double high;
+        double low;
+        double close;
+
+        double body;
+        double range;
+
+        boolean green;
+
+        Candle(
+                double open,
+                double high,
+                double low,
+                double close,
+                boolean green
+        ) {
+
+            this.open = open;
+            this.high = high;
+            this.low = low;
+            this.close = close;
+
+            this.body =
+                    Math.abs(
+                            close - open
+                    );
+
+            this.range =
+                    Math.max(
+                            0.0001,
+                            high - low
+                    );
+
+            this.green = green;
+        }
+    }
+
+    private static class Analyzer {
+
+        static ScanResult analyze(
+                Bitmap bitmap
+        ) {
+
+            List<Candle> candles =
+                    detectCandles(bitmap);
+
+            int candleCount =
+                    candles.size();
+
+            if (candleCount < 8) {
+
+                return new ScanResult(
+                        "NO TRADE",
+                        0,
+                        Math.min(
+                                40,
+                                candleCount * 5
+                        ),
+                        candleCount,
+                        candleCount > 0
+                                ? candleSize(candles)
+                                : "UNKNOWN"
+                );
+            }
+
+            double[] close =
+                    closes(candles);
+
+            double[] high =
+                    highs(candles);
+
+            double[] low =
+                    lows(candles);
+
+            double[] open =
+                    opens(candles);
+
+            double sma3 =
+                    sma(close, 3);
+
+            double sma5 =
+                    sma(close, 5);
+
+            double sma8 =
+                    sma(close, 8);
+
+            double sma13 =
+                    sma(close, 13);
+
+            double sma21 =
+                    sma(close, Math.min(21, close.length));
+
+            double ema5 =
+                    ema(close, 5);
+
+            double ema8 =
+                    ema(close, 8);
+
+            double ema13 =
+                    ema(close, 13);
+
+            double ema21 =
+                    ema(close, 21);
+
+            double ema34 =
+                    ema(close, 34);
+
+            double rsi =
+                    rsi(close, 14);
+
+            double[] macd =
+                    macd(close);
+
+            double stochastic =
+                    stochastic(
+                            close,
+                            high,
+                            low,
+                            14
+                    );
+
+            double stochasticD =
+                    stochasticD(
+                            close,
+                            high,
+                            low
+                    );
+
+            double bbMid =
+                    sma(close, 20);
+
+            double bbDev =
+                    std(
+                            close,
+                            20
+                    );
+
+            double bbUpper =
+                    bbMid +
+                    2.0 * bbDev;
+
+            double bbLower =
+                    bbMid -
+                    2.0 * bbDev;
+
+            double atr =
+                    atr(
+                            candles,
+                            14
+                    );
+
+            double last =
+                    close[close.length - 1];
+
+            double previous =
+                    close[close.length - 2];
+
+            double close2 =
+                    close[
+                            Math.max(
+                                    0,
+                                    close.length - 3
+                            )
+                    ];
+
+            double close3 =
+                    close[
+                            Math.max(
+                                    0,
+                                    close.length - 4
+                            )
+                    ];
+
+            double momentum5 =
+                    momentum(
+                            close,
+                            5
+                    );
+
+            double momentum8 =
+                    momentum(
+                            close,
+                            8
+                    );
+
+            double roc3 =
+                    roc(
+                            close,
+                            3
+                    );
+
+            double roc5 =
+                    roc(
+                            close,
+                            5
+                    );
+
+            double slope5 =
+                    slope(
+                            close,
+                            5
+                    );
+
+            double slope8 =
+                    slope(
+                            close,
+                            8
+                    );
+
+            double slope13 =
+                    slope(
+                            close,
+                            13
+                    );
+
+            double[] votes =
+                    new double[]{
+                            0,
+                            0,
+                            0
+                    };
+
+            /*
+             * EXACTLY 50 directional pairs
+             * = 100 logic checks.
+             *
+             * pair() records one UP check and
+             * one DOWN check.
+             */
+
+            pair(votes,
+                    last > sma3,
+                    last < sma3);
+
+            pair(votes,
+                    last > sma5,
+                    last < sma5);
+
+            pair(votes,
+                    last > sma8,
+                    last < sma8);
+
+            pair(votes,
+                    last > sma13,
+                    last < sma13);
+
+            pair(votes,
+                    last > sma21,
+                    last < sma21);
+
+            pair(votes,
+                    sma3 > sma8,
+                    sma3 < sma8);
+
+            pair(votes,
+                    sma5 > sma13,
+                    sma5 < sma13);
+
+            pair(votes,
+                    sma8 > sma21,
+                    sma8 < sma21);
+
+            pair(votes,
+                    ema5 > ema8,
+                    ema5 < ema8);
+
+            pair(votes,
+                    ema8 > ema13,
+                    ema8 < ema13);
+
+            pair(votes,
+                    ema13 > ema21,
+                    ema13 < ema21);
+
+            pair(votes,
+                    ema21 > ema34,
+                    ema21 < ema34);
+
+            pair(votes,
+                    slope5 > 0,
+                    slope5 < 0);
+
+            pair(votes,
+                    slope8 > 0,
+                    slope8 < 0);
+
+            pair(votes,
+                    slope13 > 0,
+                    slope13 < 0);
+
+            pair(votes,
+                    last > previous,
+                    last < previous);
+
+            pair(votes,
+                    last > close2,
+                    last < close2);
+
+            pair(votes,
+                    last > close3,
+                    last < close3);
+
+            pair(votes,
+                    momentum5 > 0,
+                    momentum5 < 0);
+
+            pair(votes,
+                    momentum8 > 0,
+                    momentum8 < 0);
+
+            pair(votes,
+                    roc3 > 0,
+                    roc3 < 0);
+
+            pair(votes,
+                    roc5 > 0,
+                    roc5 < 0);
+
+            pair(votes,
+                    rsi > 55,
+                    rsi < 45);
+
+            pair(votes,
+                    rsi > 60,
+                    rsi < 40);
+
+            pair(votes,
+                    rsi > 50,
+                    rsi < 50);
+
+            pair(votes,
+                    macd[0] > macd[1],
+                    macd[0] < macd[1]);
+
+            pair(votes,
+                    macd[0] > 0,
+                    macd[0] < 0);
+
+            pair(votes,
+                    macd[2] > 0,
+                    macd[2] < 0);
+
+            pair(votes,
+                    stochastic > stochasticD,
+                    stochastic < stochasticD);
+
+            pair(votes,
+                    stochastic > 55 &&
+                            stochastic < 80,
+                    stochastic < 45 &&
+                            stochastic > 20);
+
+            pair(votes,
+                    stochastic > 60,
+                    stochastic < 40);
+
+            pair(votes,
+                    last > bbMid,
+                    last < bbMid);
+
+            pair(votes,
+                    last > bbLower &&
+                            last < bbMid,
+                    last < bbUpper &&
+                            last > bbMid);
+
+            pair(votes,
+                    last > bbUpper &&
+                            close[close.length - 2]
+                                    < bbUpper,
+                    last < bbLower &&
+                            close[close.length - 2]
+                                    > bbLower);
+
+            pair(votes,
+                    momentum5 > atr * 0.15,
+                    momentum5 < -atr * 0.15);
+
+            pair(votes,
+                    candleBodyRatio(
+                            candles.get(
+                                    candles.size() - 1
+                            )
+                    ) > 0.60 &&
+                            candles.get(
+                                    candles.size() - 1
+                            ).green,
+                    candleBodyRatio(
+                            candles.get(
+                                    candles.size() - 1
+                            )
+                    ) > 0.60 &&
+                            !candles.get(
+                                    candles.size() - 1
+                            ).green);
+
+            pair(votes,
+                    upperClose(
+                            candles.get(
+                                    candles.size() - 1
+                            )
+                    ),
+                    lowerClose(
+                            candles.get(
+                                    candles.size() - 1
+                            )
+                    ));
+
+            pair(votes,
+                    lowerWickRejection(
+                            candles.get(
+                                    candles.size() - 1
+                            )
+                    ),
+                    upperWickRejection(
+                            candles.get(
+                                    candles.size() - 1
+                            )
+                    ));
+
+            pair(votes,
+                    bullishEngulfing(candles),
+                    bearishEngulfing(candles));
+
+            pair(votes,
+                    consecutiveGreen(candles, 3),
+                    consecutiveRed(candles, 3));
+
+            pair(votes,
+                    consecutiveGreen(candles, 2),
+                    consecutiveRed(candles, 2));
+
+            pair(votes,
+                    higherHigh(candles, 4),
+                    lowerLow(candles, 4));
+
+            pair(votes,
+                    higherLow(candles, 4),
+                    lowerHigh(candles, 4));
+
+            pair(votes,
+                    last > recentHigh(
+                            close,
+                            8
+                    ),
+                    last < recentLow(
+                            close,
+                            8
+                    ));
+
+            pair(votes,
+                    last > recentHigh(
+                            close,
+                            13
+                    ),
+                    last < recentLow(
+                            close,
+                            13
+                    ));
+
+            pair(votes,
+                    bounceFromLow(
+                            candles
+                    ),
+                    rejectFromHigh(
+                            candles
+                    ));
+
+            pair(votes,
+                    close > open[
+                            open.length - 1
+                    ],
+                    close < open[
+                            open.length - 1
+                    ]);
+
+            pair(votes,
+                    netMove(close, 5) > 0,
+                    netMove(close, 5) < 0);
+
+            pair(votes,
+                    netMove(close, 8) > 0,
+                    netMove(close, 8) < 0);
+
+            pair(votes,
+                    netMove(close, 13) > 0,
+                    netMove(close, 13) < 0);
+
+            pair(votes,
+                    averageBody(
+                            candles,
+                            5
+                    ) >
+                            averageBody(
+                                    candles,
+                                    10
+                            ),
+                    averageBody(
+                            candles,
+                            5
+                    ) <
+                            averageBody(
+                                    candles,
+                                    10
+                            ));
+
+            pair(votes,
+                    lastBodyGrowing(
+                            candles
+                    ) &&
+                            candles.get(
+                                    candles.size() - 1
+                            ).green,
+                    lastBodyGrowing(
+                            candles
+                    ) &&
+                            !candles.get(
+                                    candles.size() - 1
+                            ).green);
+
+            pair(votes,
+                    lastRangeGrowing(
+                            candles
+                    ) &&
+                            candles.get(
+                                    candles.size() - 1
+                            ).green,
+                    lastRangeGrowing(
+                            candles
+                    ) &&
+                            !candles.get(
+                                    candles.size() - 1
+                            ).green);
+
+            int up =
+                    (int) votes[0];
+
+            int down =
+                    (int) votes[1];
+
+            int total =
+                    up + down;
+
+            if (total < 12) {
+
+                return new ScanResult(
+                        "NO TRADE",
+                        0,
+                        quality(candles),
+                        candles.size(),
+                        candleSize(candles)
+                );
+            }
+
+            int strongest =
+                    Math.max(
+                            up,
+                            down
+                    );
+
+            int confidence =
+                    (int)
+                            Math.round(
+                                    50.0 +
+                                    50.0 *
+                                            Math.abs(
+                                                    up - down
+                                            ) /
+                                            total
+                            );
+
+            if (strongest < 12 ||
+                    confidence < 60) {
+
+                return new ScanResult(
+                        "NO TRADE",
+                        confidence,
+                        quality(candles),
+                        candles.size(),
+                        candleSize(candles)
+                );
+            }
+
+            if (up > down) {
+
+                return new ScanResult(
+                        "UP",
+                        confidence,
+                        quality(candles),
+                        candles.size(),
+                        candleSize(candles)
+                );
+
+            } else if (down > up) {
+
+                return new ScanResult(
+                        "DOWN",
+                        confidence,
+                        quality(candles),
+                        candles.size(),
+                        candleSize(candles)
+                );
+            }
+
+            return new ScanResult(
+                    "NO TRADE",
+                    50,
+                    quality(candles),
+                    candles.size(),
+                    candleSize(candles)
+            );
+        }
+
+        private static void pair(
+                double[] votes,
+                boolean up,
+                boolean down
+        ) {
+
+            if (up) {
+                votes[0]++;
+            }
+
+            if (down) {
+                votes[1]++;
+            }
+
+            votes[2]++;
+        }
+
+        private static List<Candle> detectCandles(
+                Bitmap bitmap
+        ) {
+
+            ArrayList<Candle> list =
+                    new ArrayList<>();
+
+            int w = bitmap.getWidth();
+            int h = bitmap.getHeight();
+
+            int left =
+                    (int) (w * 0.04);
+
+            int right =
+                    (int) (w * 0.96);
+
+            int top =
+                    (int) (h * 0.16);
+
+            int bottom =
+                    (int) (h * 0.84);
+
+            ArrayList<Integer> active =
+                    new ArrayList<>();
+
+            for (int x = left;
+                 x < right;
+                 x++) {
+
+                int count = 0;
+
+                for (int y = top;
+                     y < bottom;
+                     y += 2) {
+
+                    int c =
+                            bitmap.getPixel(
+                                    x,
+                                    y
+                            );
+
+                    int r =
+                            Color.red(c);
+
+                    int g =
+                            Color.green(c);
+
+                    int b =
+                            Color.blue(c);
+
+                    boolean green =
+                            g > 85 &&
+                            g > r * 1.18 &&
+                            g > b * 1.05;
+
+                    boolean red =
+                            r > 85 &&
+                            r > g * 1.18 &&
+                            r > b * 1.18;
+
+                    if (green || red) {
+                        count++;
+                    }
+                }
+
+                if (count >= 2) {
+                    active.add(x);
+                }
+            }
+
+            if (active.isEmpty()) {
+                return list;
+            }
+
+            int start =
+                    active.get(0);
+
+            int previous =
+                    start;
+
+            ArrayList<int[]> groups =
+                    new ArrayList<>();
+
+            for (int i = 1;
+                 i < active.size();
+                 i++) {
+
+                int x =
+                        active.get(i);
+
+                if (x - previous > 3) {
+
+                    groups.add(
+                            new int[]{
+                                    start,
+                                    previous
+                            }
+                    );
+
+                    start = x;
+                }
+
+                previous = x;
+            }
+
+            groups.add(
+                    new int[]{
+                            start,
+                            previous
+                    }
+            );
+
+            for (int[] group : groups) {
+
+                int x1 = group[0];
+                int x2 = group[1];
+
+                int width =
+                        x2 - x1 + 1;
+
+                if (width < 2 ||
+                        width > 30) {
+                    continue;
+                }
+
+                int minY =
+                        bottom;
+
+                int maxY =
+                        top;
+
+                int greenPixels = 0;
+                int redPixels = 0;
+
+                for (int x = x1;
+                     x <= x2;
+                     x++) {
+
+                    for (int y = top;
+                         y < bottom;
+                         y++) {
+
+                        int c =
+                                bitmap.getPixel(
+                                        x,
+                                        y
+                                );
+
+                        int r =
+                                Color.red(c);
+
+                        int g =
+                                Color.green(c);
+
+                        int b =
+                                Color.blue(c);
+
+                        boolean green =
+                                g > 85 &&
+                                g > r * 1.18 &&
+                                g > b * 1.05;
+
+                        boolean red =
+                                r > 85 &&
+                                r > g * 1.18 &&
+                                r > b * 1.18;
+
+                        if (green || red) {
+
+                            minY =
+                                    Math.min(
+                                            minY,
+                                            y
+                                    );
+
+                            maxY =
+                                    Math.max(
+                                            maxY,
+                                            y
+                                    );
+
+                            if (green) {
+                                greenPixels++;
+                            }
+
+                            if (red) {
+                                redPixels++;
+                            }
+                        }
+                    }
+                }
+
+                if (maxY <= minY) {
+                    continue;
+                }
+
+                boolean green =
+                        greenPixels >= redPixels;
+
+                double high =
+                        -minY;
+
+                double low =
+                        -maxY;
+
+                double open;
+                double close;
+
+                if (green) {
+
+                    open =
+                            -maxY;
+
+                    close =
+                            -minY;
+
+                } else {
+
+                    open =
+                            -minY;
+
+                    close =
+                            -maxY;
+                }
+
+                list.add(
+                        new Candle(
+                                open,
+                                high,
+                                low,
+                                close,
+                                green
+                        )
+                );
+            }
+
+            return list;
+        }
+
+        private static double[] closes(
+                List<Candle> c
+        ) {
+
+            double[] a =
+                    new double[c.size()];
+
+            for (int i = 0;
+                 i < c.size();
+                 i++) {
+
+                a[i] =
+                        c.get(i).close;
+            }
+
+            return a;
+        }
+
+        private static double[] highs(
+                List<Candle> c
+        ) {
+
+            double[] a =
+                    new double[c.size()];
+
+            for (int i = 0;
+                 i < c.size();
+                 i++) {
+
+                a[i] =
+                        c.get(i).high;
+            }
+
+            return a;
+        }
+
+        private static double[] lows(
+                List<Candle> c
+        ) {
+
+            double[] a =
+                    new double[c.size()];
+
+            for (int i = 0;
+                 i < c.size();
+                 i++) {
+
+                a[i] =
+                        c.get(i).low;
+            }
+
+            return a;
+        }
+
+        private static double[] opens(
+                List<Candle> c
+        ) {
+
+            double[] a =
+                    new double[c.size()];
+
+            for (int i = 0;
+                 i < c.size();
+                 i++) {
+
+                a[i] =
+                        c.get(i).open;
+            }
+
+            return a;
+        }
+
+        private static double sma(
+                double[] a,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            a.length
+                    );
+
+            double sum = 0;
+
+            for (int i =
+                    a.length - n;
+                 i < a.length;
+                 i++) {
+
+                sum += a[i];
+            }
+
+            return sum / n;
+        }
+
+        private static double ema(
+                double[] a,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            a.length
+                    );
+
+            double k =
+                    2.0 /
+                            (n + 1.0);
+
+            double value =
+                    a[0];
+
+            for (int i = 1;
+                 i < a.length;
+                 i++) {
+
+                value =
+                        a[i] * k +
+                        value *
+                                (1.0 - k);
+            }
+
+            return value;
+        }
+
+        private static double rsi(
+                double[] a,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            a.length - 1
+                    );
+
+            double gain = 0;
+            double loss = 0;
+
+            for (int i =
+                    a.length - n;
+                 i < a.length;
+                 i++) {
+
+                double d =
+                        a[i] -
+                        a[i - 1];
+
+                if (d > 0) {
+                    gain += d;
+                } else {
+                    loss -= d;
+                }
+            }
+
+            if (loss == 0) {
+                return 100;
+            }
+
+            double rs =
+                    gain / loss;
+
+            return 100 -
+                    100 /
+                            (1 + rs);
+        }
+
+        private static double[] macd(
+                double[] a
+        ) {
+
+            double e12 =
+                    ema(a, 12);
+
+            double e26 =
+                    ema(a, 26);
+
+            double line =
+                    e12 - e26;
+
+            double signal =
+                    ema(
+                            new double[]{
+                                    line,
+                                    line * 0.8,
+                                    line * 0.6,
+                                    line * 0.4,
+                                    line * 0.2
+                            },
+                            5
+                    );
+
+            return new double[]{
+                    line,
+                    signal,
+                    line - signal
+            };
+        }
+
+        private static double stochastic(
+                double[] close,
+                double[] high,
+                double[] low,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            close.length
+                    );
+
+            double hi =
+                    -Double.MAX_VALUE;
+
+            double lo =
+                    Double.MAX_VALUE;
+
+            for (int i =
+                    close.length - n;
+                 i < close.length;
+                 i++) {
+
+                hi =
+                        Math.max(
+                                hi,
+                                high[i]
+                        );
+
+                lo =
+                        Math.min(
+                                lo,
+                                low[i]
+                        );
+            }
+
+            if (hi == lo) {
+                return 50;
+            }
+
+            return 100 *
+                    (
+                            close[
+                                    close.length - 1
+                            ] - lo
+                    ) /
+                    (hi - lo);
+        }
+
+        private static double stochasticD(
+                double[] close,
+                double[] high,
+                double[] low
+        ) {
+
+            double sum = 0;
+
+            for (int k = 0;
+                 k < 3;
+                 k++) {
+
+                int end =
+                        close.length -
+                                k;
+
+                int n =
+                        Math.min(
+                                14,
+                                end
+                        );
+
+                double hi =
+                        -Double.MAX_VALUE;
+
+                double lo =
+                        Double.MAX_VALUE;
+
+                for (int i =
+                        end - n;
+                     i < end;
+                     i++) {
+
+                    hi =
+                            Math.max(
+                                    hi,
+                                    high[i]
+                            );
+
+                    lo =
+                            Math.min(
+                                    lo,
+                                    low[i]
+                            );
+                }
+
+                double value;
+
+                if (hi == lo) {
+                    value = 50;
+                } else {
+                    value =
+                            100 *
+                                    (
+                                            close[
+                                                    end - 1
+                                            ] - lo
+                                    ) /
+                                    (hi - lo);
+                }
+
+                sum += value;
+            }
+
+            return sum / 3.0;
+        }
+
+        private static double std(
+                double[] a,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            a.length
+                    );
+
+            double mean =
+                    sma(a, n);
+
+            double sum = 0;
+
+            for (int i =
+                    a.length - n;
+                 i < a.length;
+                 i++) {
+
+                double d =
+                        a[i] - mean;
+
+                sum += d * d;
+            }
+
+            return Math.sqrt(
+                    sum / n
+            );
+        }
+
+        private static double atr(
+                List<Candle> c,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            c.size()
+                    );
+
+            double sum = 0;
+
+            for (int i =
+                    c.size() - n;
+                 i < c.size();
+                 i++) {
+
+                sum +=
+                        c.get(i).range;
+            }
+
+            return sum / n;
+        }
+
+        private static double momentum(
+                double[] a,
+                int n
+        ) {
+
+            if (a.length <= n) {
+                return 0;
+            }
+
+            return a[a.length - 1] -
+                    a[a.length - 1 - n];
+        }
+
+        private static double roc(
+                double[] a,
+                int n
+        ) {
+
+            if (a.length <= n) {
+                return 0;
+            }
+
+            double old =
+                    a[a.length - 1 - n];
+
+            if (old == 0) {
+                return 0;
+            }
+
+            return (
+                    (
+                            a[a.length - 1] -
+                            old
+                    ) / Math.abs(old)
+            ) * 100;
+        }
+
+        private static double slope(
+                double[] a,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            a.length
+                    );
+
+            if (n < 2) {
+                return 0;
+            }
+
+            return (
+                    a[a.length - 1] -
+                    a[a.length - n]
+            ) / n;
+        }
+
+        private static double candleBodyRatio(
+                Candle c
+        ) {
+
+            return c.body /
+                    c.range;
+        }
+
+        private static boolean upperClose(
+                Candle c
+        ) {
+
+            return c.close >
+                    c.low +
+                            c.range * 0.70;
+        }
+
+        private static boolean lowerClose(
+                Candle c
+        ) {
+
+            return c.close <
+                    c.low +
+                            c.range * 0.30;
+        }
+
+        private static boolean lowerWickRejection(
+                Candle c
+        ) {
+
+            double lower =
+                    Math.min(
+                            c.open,
+                            c.close
+                    ) - c.low;
+
+            return lower >
+                    c.body * 1.3;
+        }
+
+        private static boolean upperWickRejection(
+                Candle c
+        ) {
+
+            double upper =
+                    c.high -
+                            Math.max(
+                                    c.open,
+                                    c.close
+                            );
+
+            return upper >
+                    c.body * 1.3;
+        }
+
+        private static boolean bullishEngulfing(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 2) {
+                return false;
+            }
+
+            Candle a =
+                    c.get(c.size() - 2);
+
+            Candle b =
+                    c.get(c.size() - 1);
+
+            return !a.green &&
+                    b.green &&
+                    b.open <= a.close &&
+                    b.close >= a.open;
+        }
+
+        private static boolean bearishEngulfing(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 2) {
+                return false;
+            }
+
+            Candle a =
+                    c.get(c.size() - 2);
+
+            Candle b =
+                    c.get(c.size() - 1);
+
+            return a.green &&
+                    !b.green &&
+                    b.open >= a.close &&
+                    b.close <= a.open;
+        }
+
+        private static boolean consecutiveGreen(
+                List<Candle> c,
+                int n
+        ) {
+
+            if (c.size() < n) {
+                return false;
+            }
+
+            for (int i =
+                    c.size() - n;
+                 i < c.size();
+                 i++) {
+
+                if (!c.get(i).green) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static boolean consecutiveRed(
+                List<Candle> c,
+                int n
+        ) {
+
+            if (c.size() < n) {
+                return false;
+            }
+
+            for (int i =
+                    c.size() - n;
+                 i < c.size();
+                 i++) {
+
+                if (c.get(i).green) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static boolean higherHigh(
+                List<Candle> c,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            c.size() - 1
+                    );
+
+            for (int i =
+                    c.size() - n;
+                 i < c.size();
+                 i++) {
+
+                if (c.get(i).high <=
+                        c.get(i - 1).high) {
+
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static boolean lowerLow(
+                List<Candle> c,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            c.size() - 1
+                    );
+
+            for (int i =
+                    c.size() - n;
+                 i < c.size();
+                 i++) {
+
+                if (c.get(i).low >=
+                        c.get(i - 1).low) {
+
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static boolean higherLow(
+                List<Candle> c,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            c.size() - 1
+                    );
+
+            for (int i =
+                    c.size() - n;
+                 i < c.size();
+                 i++) {
+
+                if (c.get(i).low <=
+                        c.get(i - 1).low) {
+
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static boolean lowerHigh(
+                List<Candle> c,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            c.size() - 1
+                    );
+
+            for (int i =
+                    c.size() - n;
+                 i < c.size();
+                 i++) {
+
+                if (c.get(i).high >=
+                        c.get(i - 1).high) {
+
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static double recentHigh(
+                double[] a,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            a.length - 1
+                    );
+
+            double high =
+                    -Double.MAX_VALUE;
+
+            for (int i =
+                    a.length - 1 - n;
+                 i < a.length - 1;
+                 i++) {
+
+                high =
+                        Math.max(
+                                high,
+                                a[i]
+                        );
+            }
+
+            return high;
+        }
+
+        private static double recentLow(
+                double[] a,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            a.length - 1
+                    );
+
+            double low =
+                    Double.MAX_VALUE;
+
+            for (int i =
+                    a.length - 1 - n;
+                 i < a.length - 1;
+                 i++) {
+
+                low =
+                        Math.min(
+                                low,
+                                a[i]
+                        );
+            }
+
+            return low;
+        }
+
+        private static boolean bounceFromLow(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 5) {
+                return false;
+            }
+
+            Candle last =
+                    c.get(c.size() - 1);
+
+            double low =
+                    Double.MAX_VALUE;
+
+            for (int i =
+                    c.size() - 5;
+                 i < c.size() - 1;
+                 i++) {
+
+                low =
+                        Math.min(
+                                low,
+                                c.get(i).low
+                        );
+            }
+
+            return last.green &&
+                    last.low <=
+                            low +
+                                    last.range * 0.25;
+        }
+
+        private static boolean rejectFromHigh(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 5) {
+                return false;
+            }
+
+            Candle last =
+                    c.get(c.size() - 1);
+
+            double high =
+                    -Double.MAX_VALUE;
+
+            for (int i =
+                    c.size() - 5;
+                 i < c.size() - 1;
+                 i++) {
+
+                high =
+                        Math.max(
+                                high,
+                                c.get(i).high
+                        );
+            }
+
+            return !last.green &&
+                    last.high >=
+                            high -
+                                    last.range * 0.25;
+        }
+
+        private static double netMove(
+                double[] a,
+                int n
+        ) {
+
+            if (a.length <= n) {
+                return 0;
+            }
+
+            return a[a.length - 1] -
+                    a[a.length - 1 - n];
+        }
+
+        private static double averageBody(
+                List<Candle> c,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            c.size()
+                    );
+
+            double sum = 0;
+
+            for (int i =
+                    c.size() - n;
+                 i < c.size();
+                 i++) {
+
+                sum +=
+                        c.get(i).body;
+            }
+
+            return sum / n;
+        }
+
+        private static boolean lastBodyGrowing(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 2) {
+                return false;
+            }
+
+            return c.get(
+                    c.size() - 1
+            ).body >
+                    c.get(
+                            c.size() - 2
+                    ).body;
+        }
+
+        private static boolean lastRangeGrowing(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 2) {
+                return false;
+            }
+
+            return c.get(
+                    c.size() - 1
+            ).range >
+                    c.get(
+                            c.size() - 2
+                    ).range;
+        }
+
+        private static int quality(
+                List<Candle> c
+        ) {
+
+            int q =
+                    c.size() * 3;
+
+            return Math.min(
+                    100,
+                    Math.max(
+                            10,
+                            q
+                    )
+            );
+        }
+
+        private static String candleSize(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 3) {
+                return "UNKNOWN";
+            }
+
+            double avg =
+                    averageBody(
+                            c,
+                            Math.min(
+                                    10,
+                                    c.size()
+                            )
+                    );
+
+            if (avg < 4) {
+                return "SMALL";
+            }
+
+            if (avg < 10) {
+                return "MEDIUM";
+            }
+
+            return "LARGE";
         }
     }
 }
