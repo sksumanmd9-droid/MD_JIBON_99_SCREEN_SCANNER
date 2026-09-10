@@ -4,27 +4,25 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.mdjibon.scanner">
 
-    <!-- Floating window -->
     <uses-permission
         android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- Foreground services -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE" />
 
-    <!-- Android 14+ MediaProjection foreground service -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
-    <!-- Android 13+ notification -->
     <uses-permission
         android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:theme="@style/AppTheme"
-        android:label="MD JIBON 99% Screen Scanner"
         android:allowBackup="false"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:label="MD JIBON Screen Scanner"
+        android:icon="@drawable/md_jibon_logo"
+        android:roundIcon="@drawable/md_jibon_logo"
+        android:theme="@android:style/Theme.Material.NoActionBar">
 
         <activity
             android:name=".MainActivity"
@@ -42,13 +40,11 @@
 
         </activity>
 
-        <!-- Screen capture -->
         <service
             android:name=".ScreenCaptureService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
-        <!-- Floating scanner -->
         <service
             android:name=".FloatingScannerService"
             android:exported="false" />
