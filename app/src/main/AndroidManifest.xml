@@ -4,15 +4,15 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.mdjibon.scanner">
 
-    <!-- Floating overlay -->
+    <!-- Floating window -->
     <uses-permission
         android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- Foreground service -->
+    <!-- Foreground services -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE" />
 
-    <!-- MediaProjection foreground service -->
+    <!-- Android 14+ MediaProjection foreground service -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
@@ -42,11 +42,13 @@
 
         </activity>
 
+        <!-- Screen capture -->
         <service
             android:name=".ScreenCaptureService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
+        <!-- Floating scanner -->
         <service
             android:name=".FloatingScannerService"
             android:exported="false" />
