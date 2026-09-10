@@ -1,193 +1,63 @@
 package com.mdjibon.scanner;
 
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.app.Service;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
+import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.PixelFormat;
-import android.graphics.Typeface;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
-
-import androidx.core.app.NotificationCompat;
 
 public class FloatingScannerService extends Service {
 
-    public static boolean isRunning = false;
+    private static boolean running = false;
 
-    private static final String CHANNEL =
-            "MDJIBON_FLOATING";
+    private WindowManager windowManager;
 
-    private WindowManager wm;
+    private LogoButton logoButton;
 
-    private FrameLayout bubble;
+    private WindowManager.LayoutParams logoParams;
 
-    private WindowManager.LayoutParams bubbleParams;
+    private View scanView;
+    private WindowManager.LayoutParams scanParams;
 
-    private FrameLayout scanOverlay;
+    private View resultView;
+    private WindowManager.LayoutParams resultParams;
 
-    private TextView scanText;
+    private BroadcastReceiverHolder receiver;
 
-    private TextView signalBox;
+    private boolean dragging = false;
+    private boolean scanVisible = false;
 
-    private BroadcastReceiver receiver;
+    private float downRawX;
+    private float downRawY;
 
-    private float downX;
-    private float downY;
+    private int downX;
+    private int downY;
 
-    private int startX;
-    private int startY;
+    private final Handler handler =
+            new Handler();
 
-    private boolean moved;
-
-    private long downTime;
+    public static boolean isRunning() {
+        return running;
+    }
 
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
-
-    @Override
-    public void onCreate() {
-
-        super.onCreate();
-
-        isRunning = true;
-
-        createNotificationChannel();
-
-        Intent open =
-                new Intent(
-                        this,
-                        MainActivity.class
-                );
-
-        PendingIntent pi =
-                PendingIntent.getActivity(
-                        this,
-                        0,
-                        open,
-                        Build.VERSION.SDK_INT >= 23
-                                ? PendingIntent.FLAG_IMMUTABLE
-                                : 0
-                );
-
-        Notification n =
-                new NotificationCompat.Builder(
-                        this,
-                        CHANNEL
-                )
-                        .setContentTitle(
-                                "MD JIBON Scanner"
-                        )
-                        .setContentText(
-                                "Floating Scanner চলছে"
-                        )
-                        .setSmallIcon(
-                                android.R.drawable.ic_menu_search
-                        )
-                        .setOngoing(true)
-                        .setContentIntent(pi)
-                        .build();
-
-        startForeground(
-                7001,
-                n
-        );
-
-        receiver =
-                new BroadcastReceiver() {
-
-                    @Override
-                    public void onReceive(
-                            Context c,
-                            Intent i
-                    ) {
-
-                        String action =
-                                i.getAction();
-
-                        if (
-                                ScreenCaptureService
-                                        .ACTION_PROGRESS
-                                        .equals(action)
-                        ) {
-
-                            int p =
-                                    i.getIntExtra(
-                                            "progress",
-                                            0
-                                    );
-
-                            showScanning(p);
-
-                        } else if (
-                                ScreenCaptureService
-                                        .ACTION_RESULT
-                                        .equals(action)
-                        ) {
-
-                            hideScanning();
-
-                            String signal =
-                                    i.getStringExtra(
-                                            "signal"
-                                    );
-
-                            int confidence =
-                                    i.getIntExtra(
-                                            "confidence",
-                                            0
-                                    );
-
-                            showSignal(
-                                    signal,
-                                    confidence
-                            );
-                        }
-                    }
-                };
-
-        IntentFilter filter =
-                new IntentFilter();
-
-        filter.addAction(
-                ScreenCaptureService.ACTION_PROGRESS
-        );
-
-        filter.addAction(
-                ScreenCaptureService.ACTION_RESULT
-        );
-
-        if (Build.VERSION.SDK_INT >= 33) {
-
-            registerReceiver(
-                    receiver,
-                    filter,
-                    Context.RECEIVER_NOT_EXPORTED
-            );
-
-        } else {
-
-            registerReceiver(
-                    receiver,
-                    filter
-            );
-        }
-
-        showBubble();
     }
 
     @Override
@@ -197,79 +67,69 @@ public class FloatingScannerService extends Service {
             int startId
     ) {
 
-        return START_NOT_STICKY;
+        running = true;
+
+        if (logoButton == null) {
+            createLogo();
+        }
+
+        if (receiver == null) {
+            receiver =
+                    new BroadcastReceiverHolder(
+                            this
+                    );
+
+            receiver.register();
+        }
+
+        return START_STICKY;
     }
 
-    private void showBubble() {
+    private void createLogo() {
 
-        if (bubble != null)
-            return;
-
-        wm =
+        windowManager =
                 (WindowManager)
                         getSystemService(
                                 WINDOW_SERVICE
                         );
 
-        bubble =
-                new FrameLayout(this);
+        logoButton =
+                new LogoButton(this);
 
-        TextView icon =
-                new TextView(this);
-
-        icon.setText("↗");
-        icon.setTextSize(22);
-        icon.setTypeface(
-                Typeface.DEFAULT_BOLD
-        );
-        icon.setGravity(Gravity.CENTER);
-        icon.setTextColor(Color.WHITE);
-
-        GradientCircle bg =
-                new GradientCircle();
-
-        icon.setBackground(bg);
-
-        bubble.addView(
-                icon,
-                new FrameLayout.LayoutParams(
-                        58,
-                        58
-                )
-        );
-
-        int type;
-
-        if (Build.VERSION.SDK_INT >= 26) {
-
-            type =
-                    WindowManager.LayoutParams
-                            .TYPE_APPLICATION_OVERLAY;
-
-        } else {
-
-            type =
-                    WindowManager.LayoutParams
-                            .TYPE_PHONE;
-        }
-
-        bubbleParams =
+        logoParams =
                 new WindowManager.LayoutParams(
-                        58,
-                        58,
-                        type,
-                        WindowManager.LayoutParams
-                                .FLAG_NOT_FOCUSABLE,
-                        PixelFormat.TRANSLUCENT
+                        dp(58),
+                        dp(58),
+                        Build.VERSION.SDK_INT >= 26
+                                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                                : WindowManager.LayoutParams.TYPE_PHONE,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                        android.graphics.PixelFormat.TRANSLUCENT
                 );
 
-        bubbleParams.gravity =
-                Gravity.TOP | Gravity.LEFT;
+        SharedPreferences prefs =
+                getSharedPreferences(
+                        "scanner_position",
+                        MODE_PRIVATE
+                );
 
-        bubbleParams.x = 35;
-        bubbleParams.y = 500;
+        logoParams.gravity =
+                Gravity.TOP |
+                Gravity.LEFT;
 
-        icon.setOnTouchListener(
+        logoParams.x =
+                prefs.getInt(
+                        "x",
+                        18
+                );
+
+        logoParams.y =
+                prefs.getInt(
+                        "y",
+                        300
+                );
+
+        logoButton.setOnTouchListener(
                 new View.OnTouchListener() {
 
                     @Override
@@ -278,28 +138,23 @@ public class FloatingScannerService extends Service {
                             MotionEvent event
                     ) {
 
-                        switch (
-                                event.getActionMasked()
-                        ) {
+                        switch (event.getActionMasked()) {
 
                             case MotionEvent.ACTION_DOWN:
 
-                                downX =
+                                dragging = false;
+
+                                downRawX =
                                         event.getRawX();
 
-                                downY =
+                                downRawY =
                                         event.getRawY();
 
-                                startX =
-                                        bubbleParams.x;
+                                downX =
+                                        logoParams.x;
 
-                                startY =
-                                        bubbleParams.y;
-
-                                moved = false;
-
-                                downTime =
-                                        System.currentTimeMillis();
+                                downY =
+                                        logoParams.y;
 
                                 return true;
 
@@ -307,53 +162,51 @@ public class FloatingScannerService extends Service {
 
                                 float dx =
                                         event.getRawX()
-                                                - downX;
+                                        - downRawX;
 
                                 float dy =
                                         event.getRawY()
-                                                - downY;
+                                        - downRawY;
 
-                                if (
-                                        Math.abs(dx) > 8 ||
-                                        Math.abs(dy) > 8
-                                ) {
-                                    moved = true;
-                                }
+                                if (Math.abs(dx) > dp(8) ||
+                                        Math.abs(dy) > dp(8)) {
 
-                                bubbleParams.x =
-                                        startX +
-                                                (int) dx;
+                                    dragging = true;
 
-                                bubbleParams.y =
-                                        startY +
-                                                (int) dy;
+                                    logoParams.x =
+                                            downX +
+                                            (int) dx;
 
-                                keepInsideScreen();
+                                    logoParams.y =
+                                            downY +
+                                            (int) dy;
 
-                                try {
+                                    clampLogo();
 
-                                    wm.updateViewLayout(
-                                            bubble,
-                                            bubbleParams
+                                    windowManager.updateViewLayout(
+                                            logoButton,
+                                            logoParams
                                     );
-
-                                } catch (Exception ignored) {
                                 }
 
                                 return true;
 
                             case MotionEvent.ACTION_UP:
 
-                                long duration =
-                                        System.currentTimeMillis()
-                                                - downTime;
+                                if (!dragging) {
+                                    startScan();
+                                } else {
 
-                                if (
-                                        !moved &&
-                                        duration < 600
-                                ) {
-
-                                    performScan();
+                                    prefs.edit()
+                                            .putInt(
+                                                    "x",
+                                                    logoParams.x
+                                            )
+                                            .putInt(
+                                                    "y",
+                                                    logoParams.y
+                                            )
+                                            .apply();
                                 }
 
                                 return true;
@@ -364,17 +217,70 @@ public class FloatingScannerService extends Service {
                 }
         );
 
-        wm.addView(
-                bubble,
-                bubbleParams
+        windowManager.addView(
+                logoButton,
+                logoParams
         );
     }
 
-    private void performScan() {
+    private void clampLogo() {
 
-        hideSignal();
+        int width =
+                getResources()
+                        .getDisplayMetrics()
+                        .widthPixels;
 
-        showScanning(0);
+        int height =
+                getResources()
+                        .getDisplayMetrics()
+                        .heightPixels;
+
+        logoParams.x =
+                Math.max(
+                        0,
+                        Math.min(
+                                logoParams.x,
+                                width - dp(58)
+                        )
+                );
+
+        logoParams.y =
+                Math.max(
+                        0,
+                        Math.min(
+                                logoParams.y,
+                                height - dp(58)
+                        )
+                );
+    }
+
+    private void startScan() {
+
+        if (scanVisible) {
+            return;
+        }
+
+        if (!ScreenCaptureService.isCaptureActive()) {
+
+            showResult(
+                    "SCREEN CAPTURE",
+                    0,
+                    "Screen Capture OFF",
+                    0,
+                    0,
+                    false
+            );
+
+            return;
+        }
+
+        scanVisible = true;
+
+        logoButton.setVisibility(
+                View.INVISIBLE
+        );
+
+        showScanView();
 
         Intent scan =
                 new Intent(
@@ -382,450 +288,704 @@ public class FloatingScannerService extends Service {
                         ScreenCaptureService.class
                 );
 
-        scan.setAction("SCAN_NOW");
+        scan.setAction(
+                ScreenCaptureService.ACTION_SCAN
+        );
 
-        try {
-
-            if (Build.VERSION.SDK_INT >= 26) {
-
-                startForegroundService(scan);
-
-            } else {
-
-                startService(scan);
-            }
-
-        } catch (Exception e) {
-
-            hideScanning();
-
-            showSignal(
-                    "NO TRADE",
-                    0
-            );
-        }
+        startService(scan);
     }
 
-    private void showScanning(
-            int progress
-    ) {
+    private void showScanView() {
 
-        if (scanOverlay == null) {
+        final ScanView view =
+                new ScanView(this);
 
-            scanOverlay =
-                    new FrameLayout(this);
+        scanView = view;
 
-            scanOverlay.setBackgroundColor(
-                    Color.argb(
-                            35,
-                            0,
-                            110,
-                            255
-                    )
-            );
-
-            scanText =
-                    new TextView(this);
-
-            scanText.setTextColor(
-                    Color.WHITE
-            );
-
-            scanText.setTextSize(20);
-
-            scanText.setTypeface(
-                    Typeface.DEFAULT_BOLD
-            );
-
-            scanText.setGravity(
-                    Gravity.CENTER
-            );
-
-            scanText.setBackground(
-                    new BluePanel()
-            );
-
-            FrameLayout.LayoutParams tp =
-                    new FrameLayout.LayoutParams(
-                            300,
-                            145
-                    );
-
-            tp.gravity =
-                    Gravity.CENTER;
-
-            scanOverlay.addView(
-                    scanText,
-                    tp
-            );
-
-            int type;
-
-            if (Build.VERSION.SDK_INT >= 26) {
-
-                type =
-                        WindowManager.LayoutParams
-                                .TYPE_APPLICATION_OVERLAY;
-
-            } else {
-
-                type =
-                        WindowManager.LayoutParams
-                                .TYPE_PHONE;
-            }
-
-            WindowManager.LayoutParams sp =
-                    new WindowManager.LayoutParams(
-                            -1,
-                            -1,
-                            type,
-                            WindowManager.LayoutParams
-                                    .FLAG_NOT_FOCUSABLE |
-                            WindowManager.LayoutParams
-                                    .FLAG_NOT_TOUCHABLE,
-                            PixelFormat.TRANSLUCENT
-                    );
-
-            sp.gravity =
-                    Gravity.TOP | Gravity.LEFT;
-
-            try {
-
-                wm.addView(
-                        scanOverlay,
-                        sp
+        scanParams =
+                new WindowManager.LayoutParams(
+                        dp(290),
+                        dp(340),
+                        Build.VERSION.SDK_INT >= 26
+                                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                                : WindowManager.LayoutParams.TYPE_PHONE,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                        android.graphics.PixelFormat.TRANSLUCENT
                 );
 
-            } catch (Exception ignored) {
-            }
-        }
+        scanParams.gravity =
+                Gravity.CENTER;
 
-        if (scanText != null) {
-
-            scanText.setText(
-                    "SCANNING...\n\n" +
-                    progress +
-                    " / 100"
-            );
-        }
+        windowManager.addView(
+                scanView,
+                scanParams
+        );
     }
 
-    private void hideScanning() {
-
-        if (scanOverlay != null) {
-
-            try {
-
-                wm.removeView(
-                        scanOverlay
-                );
-
-            } catch (Exception ignored) {
-            }
-
-            scanOverlay = null;
-            scanText = null;
-        }
-    }
-
-    private void showSignal(
+    private void showResult(
             String signal,
-            int confidence
+            int confidence,
+            String timeframe,
+            int candles,
+            int quality,
+            boolean realSignal
     ) {
 
-        hideSignal();
+        removeScanView();
 
-        if (
-                signal == null ||
-                "NO TRADE".equals(signal)
-        ) {
-            return;
+        scanVisible = false;
+
+        if (logoButton != null) {
+            logoButton.setVisibility(
+                    View.VISIBLE
+            );
         }
 
-        signalBox =
-                new TextView(this);
+        LinearLayout card =
+                new LinearLayout(this);
 
-        signalBox.setGravity(
+        card.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        card.setGravity(
                 Gravity.CENTER
         );
 
-        signalBox.setTypeface(
-                Typeface.DEFAULT_BOLD
+        card.setPadding(
+                dp(15),
+                dp(12),
+                dp(15),
+                dp(12)
         );
 
-        signalBox.setTextSize(25);
+        GradientDrawable background =
+                new GradientDrawable();
 
-        signalBox.setTextColor(
-                Color.WHITE
+        background.setColor(
+                Color.rgb(5, 18, 35)
+        );
+
+        background.setCornerRadius(
+                dp(18)
         );
 
         if ("UP".equals(signal)) {
 
-            signalBox.setText(
-                    "↑  UP\n" +
-                    confidence +
-                    "%"
+            background.setStroke(
+                    dp(2),
+                    Color.rgb(25, 235, 135)
             );
 
-            signalBox.setBackground(
-                    new SignalPanel(
-                            Color.rgb(
-                                    20,
-                                    155,
-                                    30
-                            )
-                    )
+        } else if ("DOWN".equals(signal)) {
+
+            background.setStroke(
+                    dp(2),
+                    Color.rgb(255, 65, 80)
             );
 
         } else {
 
-            signalBox.setText(
-                    "↓  DOWN\n" +
-                    confidence +
-                    "%"
-            );
-
-            signalBox.setBackground(
-                    new SignalPanel(
-                            Color.rgb(
-                                    210,
-                                    30,
-                                    35
-                            )
-                    )
+            background.setStroke(
+                    dp(2),
+                    Color.rgb(30, 160, 255)
             );
         }
 
-        int type;
+        card.setBackground(
+                background
+        );
 
-        if (Build.VERSION.SDK_INT >= 26) {
+        ImageView logo =
+                new ImageView(this);
 
-            type =
-                    WindowManager.LayoutParams
-                            .TYPE_APPLICATION_OVERLAY;
+        logo.setImageResource(
+                R.drawable.md_jibon_logo
+        );
+
+        logo.setScaleType(
+                ImageView.ScaleType.CENTER_CROP
+        );
+
+        card.addView(
+                logo,
+                new LinearLayout.LayoutParams(
+                        dp(48),
+                        dp(48)
+                )
+        );
+
+        TextView signalText =
+                new TextView(this);
+
+        signalText.setText(
+                signal
+        );
+
+        signalText.setTextSize(24);
+
+        signalText.setGravity(
+                Gravity.CENTER
+        );
+
+        if ("UP".equals(signal)) {
+
+            signalText.setTextColor(
+                    Color.rgb(30, 235, 135)
+            );
+
+        } else if ("DOWN".equals(signal)) {
+
+            signalText.setTextColor(
+                    Color.rgb(255, 65, 80)
+            );
 
         } else {
 
-            type =
-                    WindowManager.LayoutParams
-                            .TYPE_PHONE;
+            signalText.setTextColor(
+                    Color.WHITE
+            );
         }
 
-        WindowManager.LayoutParams p =
+        card.addView(signalText);
+
+        TextView score =
+                new TextView(this);
+
+        score.setText(
+                realSignal
+                        ? confidence + "%"
+                        : timeframe
+        );
+
+        score.setTextSize(19);
+
+        score.setGravity(
+                Gravity.CENTER
+        );
+
+        score.setTextColor(
+                Color.WHITE
+        );
+
+        card.addView(score);
+
+        TextView details =
+                new TextView(this);
+
+        if (realSignal) {
+
+            details.setText(
+                    timeframe +
+                    "\nCandles: " +
+                    candles +
+                    "\nQuality: " +
+                    quality +
+                    "%"
+            );
+
+        } else {
+
+            details.setText(
+                    "Tap scanner again after\n" +
+                    "Screen Capture is enabled."
+            );
+        }
+
+        details.setTextSize(12);
+
+        details.setGravity(
+                Gravity.CENTER
+        );
+
+        details.setTextColor(
+                Color.LTGRAY
+        );
+
+        card.addView(details);
+
+        resultView = card;
+
+        resultParams =
                 new WindowManager.LayoutParams(
-                        230,
-                        155,
-                        type,
-                        WindowManager.LayoutParams
-                                .FLAG_NOT_FOCUSABLE,
-                        PixelFormat.TRANSLUCENT
+                        dp(190),
+                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        Build.VERSION.SDK_INT >= 26
+                                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                                : WindowManager.LayoutParams.TYPE_PHONE,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                        android.graphics.PixelFormat.TRANSLUCENT
                 );
 
-        p.gravity =
-                Gravity.TOP | Gravity.LEFT;
+        resultParams.gravity =
+                Gravity.TOP |
+                Gravity.LEFT;
 
-        p.x =
-                bubbleParams != null
-                        ? bubbleParams.x
-                        : 35;
+        resultParams.x =
+                logoParams.x;
 
-        p.y =
-                bubbleParams != null
-                        ? bubbleParams.y + 75
-                        : 575;
+        resultParams.y =
+                Math.max(
+                        10,
+                        logoParams.y - dp(205)
+                );
 
-        try {
+        card.setOnClickListener(
+                v -> dismissResult()
+        );
 
-            wm.addView(
-                    signalBox,
-                    p
-            );
-
-        } catch (Exception ignored) {
-        }
+        windowManager.addView(
+                resultView,
+                resultParams
+        );
     }
 
-    private void hideSignal() {
+    private void dismissResult() {
 
-        if (signalBox != null) {
+        if (resultView != null) {
 
             try {
-
-                wm.removeView(
-                        signalBox
+                windowManager.removeView(
+                        resultView
                 );
-
             } catch (Exception ignored) {
             }
 
-            signalBox = null;
+            resultView = null;
+        }
+
+        if (logoButton != null) {
+            logoButton.setVisibility(
+                    View.VISIBLE
+            );
         }
     }
 
-    private void keepInsideScreen() {
+    private void removeScanView() {
 
-        if (wm == null)
-            return;
+        if (scanView != null) {
 
-        android.util.DisplayMetrics dm =
-                getResources()
-                        .getDisplayMetrics();
+            try {
+                windowManager.removeView(
+                        scanView
+                );
+            } catch (Exception ignored) {
+            }
 
-        int maxX =
-                dm.widthPixels - 58;
-
-        int maxY =
-                dm.heightPixels - 58;
-
-        if (bubbleParams.x < 0)
-            bubbleParams.x = 0;
-
-        if (bubbleParams.y < 0)
-            bubbleParams.y = 0;
-
-        if (bubbleParams.x > maxX)
-            bubbleParams.x = maxX;
-
-        if (bubbleParams.y > maxY)
-            bubbleParams.y = maxY;
+            scanView = null;
+        }
     }
 
-    private void createNotificationChannel() {
+    private int dp(int value) {
 
-        if (Build.VERSION.SDK_INT >= 26) {
+        return (int)
+                (value *
+                        getResources()
+                                .getDisplayMetrics()
+                                .density +
+                        0.5f);
+    }
 
-            NotificationChannel c =
-                    new NotificationChannel(
-                            CHANNEL,
-                            "Floating Scanner",
-                            NotificationManager
-                                    .IMPORTANCE_LOW
+    private class LogoButton extends View {
+
+        private final Paint paint =
+                new Paint(
+                        Paint.ANTI_ALIAS_FLAG
+                );
+
+        private Bitmap bitmap;
+
+        LogoButton(Context context) {
+
+            super(context);
+
+            bitmap =
+                    android.graphics.BitmapFactory
+                            .decodeResource(
+                                    getResources(),
+                                    R.drawable.md_jibon_logo
+                            );
+
+            setLayerType(
+                    View.LAYER_TYPE_SOFTWARE,
+                    null
+            );
+        }
+
+        @Override
+        protected void onDraw(
+                Canvas canvas
+        ) {
+
+            super.onDraw(canvas);
+
+            RectF dst =
+                    new RectF(
+                            0,
+                            0,
+                            getWidth(),
+                            getHeight()
                     );
 
-            NotificationManager nm =
-                    getSystemService(
-                            NotificationManager.class
+            canvas.drawBitmap(
+                    bitmap,
+                    null,
+                    dst,
+                    paint
+            );
+        }
+    }
+
+    private class ScanView extends View {
+
+        private final Paint paint =
+                new Paint(
+                        Paint.ANTI_ALIAS_FLAG
+                );
+
+        private Bitmap bitmap;
+
+        private float progress = 0;
+
+        private long startTime;
+
+        ScanView(Context context) {
+
+            super(context);
+
+            bitmap =
+                    android.graphics.BitmapFactory
+                            .decodeResource(
+                                    getResources(),
+                                    R.drawable.md_jibon_logo
+                            );
+
+            startTime =
+                    System.currentTimeMillis();
+
+            handler.post(
+                    animation
+            );
+        }
+
+        private final Runnable animation =
+                new Runnable() {
+
+                    @Override
+                    public void run() {
+
+                        long elapsed =
+                                System.currentTimeMillis()
+                                - startTime;
+
+                        progress =
+                                Math.min(
+                                        100f,
+                                        elapsed / 22f
+                                );
+
+                        invalidate();
+
+                        if (progress < 100) {
+                            handler.postDelayed(
+                                    this,
+                                    20
+                            );
+                        }
+                    }
+                };
+
+        @Override
+        protected void onDraw(
+                Canvas canvas
+        ) {
+
+            super.onDraw(canvas);
+
+            float w = getWidth();
+            float h = getHeight();
+
+            paint.setColor(
+                    Color.argb(
+                            245,
+                            3,
+                            17,
+                            38
+                    )
+            );
+
+            canvas.drawRoundRect(
+                    new RectF(
+                            0,
+                            0,
+                            w,
+                            h
+                    ),
+                    dp(30),
+                    dp(30),
+                    paint
+            );
+
+            float size =
+                    Math.min(
+                            w - dp(30),
+                            dp(245)
                     );
 
-            nm.createNotificationChannel(c);
+            float left =
+                    (w - size) / 2f;
+
+            float top =
+                    dp(18);
+
+            RectF logoRect =
+                    new RectF(
+                            left,
+                            top,
+                            left + size,
+                            top + size
+                    );
+
+            paint.setAlpha(255);
+
+            canvas.drawBitmap(
+                    bitmap,
+                    null,
+                    logoRect,
+                    paint
+            );
+
+            paint.setColor(
+                    Color.rgb(
+                            0,
+                            190,
+                            255
+                    )
+            );
+
+            paint.setStrokeWidth(
+                    dp(3)
+            );
+
+            float lineY =
+                    top +
+                    (size *
+                            progress /
+                            100f);
+
+            canvas.drawLine(
+                    left,
+                    lineY,
+                    left + size,
+                    lineY,
+                    paint
+            );
+
+            paint.setTextAlign(
+                    Paint.Align.CENTER
+            );
+
+            paint.setTextSize(
+                    dp(20)
+            );
+
+            paint.setColor(
+                    Color.WHITE
+            );
+
+            canvas.drawText(
+                    "SCANNING...",
+                    w / 2f,
+                    dp(292),
+                    paint
+            );
+
+            paint.setTextSize(
+                    dp(25)
+            );
+
+            paint.setColor(
+                    Color.rgb(
+                            30,
+                            190,
+                            255
+                    )
+            );
+
+            canvas.drawText(
+                    ((int) progress) +
+                    "/100",
+                    w / 2f,
+                    dp(325),
+                    paint
+            );
+        }
+    }
+
+    private class BroadcastReceiverHolder
+            extends android.content.BroadcastReceiver {
+
+        private final Context context;
+
+        BroadcastReceiverHolder(Context c) {
+            context = c;
+        }
+
+        void register() {
+
+            IntentFilter filter =
+                    new IntentFilter();
+
+            filter.addAction(
+                    ScreenCaptureService.ACTION_PROGRESS
+            );
+
+            filter.addAction(
+                    ScreenCaptureService.ACTION_RESULT
+            );
+
+            if (Build.VERSION.SDK_INT >= 33) {
+
+                context.registerReceiver(
+                        this,
+                        filter,
+                        Context.RECEIVER_NOT_EXPORTED
+                );
+
+            } else {
+
+                context.registerReceiver(
+                        this,
+                        filter
+                );
+            }
+        }
+
+        @Override
+        public void onReceive(
+                Context context,
+                Intent intent
+        ) {
+
+            String action =
+                    intent.getAction();
+
+            if (ScreenCaptureService.ACTION_PROGRESS
+                    .equals(action)) {
+
+                if (scanView instanceof ScanView) {
+
+                    ScanView view =
+                            (ScanView) scanView;
+
+                    view.progress =
+                            intent.getIntExtra(
+                                    "progress",
+                                    0
+                            );
+
+                    view.invalidate();
+                }
+            }
+
+            if (ScreenCaptureService.ACTION_RESULT
+                    .equals(action)) {
+
+                String signal =
+                        intent.getStringExtra(
+                                "signal"
+                        );
+
+                int confidence =
+                        intent.getIntExtra(
+                                "confidence",
+                                0
+                        );
+
+                int candles =
+                        intent.getIntExtra(
+                                "detectedCandles",
+                                0
+                        );
+
+                int quality =
+                        intent.getIntExtra(
+                                "quality",
+                                0
+                        );
+
+                String timeframe =
+                        intent.getStringExtra(
+                                "timeframe"
+                        );
+
+                String candleSize =
+                        intent.getStringExtra(
+                                "candleSize"
+                        );
+
+                showResult(
+                        signal,
+                        confidence,
+                        timeframe +
+                                " • " +
+                                candleSize,
+                        candles,
+                        quality,
+                        true
+                );
+            }
         }
     }
 
     @Override
     public void onDestroy() {
 
-        isRunning = false;
+        running = false;
+
+        handler.removeCallbacksAndMessages(
+                null
+        );
 
         if (receiver != null) {
 
             try {
-                unregisterReceiver(receiver);
+                unregisterReceiver(
+                        receiver
+                );
             } catch (Exception ignored) {
             }
+
+            receiver = null;
         }
 
-        hideScanning();
-        hideSignal();
+        removeScanView();
 
-        if (bubble != null) {
+        if (resultView != null) {
 
             try {
-                wm.removeView(bubble);
+                windowManager.removeView(
+                        resultView
+                );
             } catch (Exception ignored) {
             }
 
-            bubble = null;
+            resultView = null;
+        }
+
+        if (logoButton != null) {
+
+            try {
+                windowManager.removeView(
+                        logoButton
+                );
+            } catch (Exception ignored) {
+            }
+
+            logoButton = null;
         }
 
         super.onDestroy();
-    }
-
-    private class GradientCircle
-            extends android.graphics.drawable.GradientDrawable {
-
-        GradientCircle() {
-
-            setShape(
-                    android.graphics.drawable
-                            .GradientDrawable.OVAL
-            );
-
-            setColor(
-                    Color.rgb(
-                            0,
-                            105,
-                            235
-                    )
-            );
-
-            setStroke(
-                    3,
-                    Color.rgb(
-                            70,
-                            200,
-                            255
-                    )
-            );
-        }
-    }
-
-    private class BluePanel
-            extends android.graphics.drawable.GradientDrawable {
-
-        BluePanel() {
-
-            setShape(
-                    android.graphics.drawable
-                            .GradientDrawable.RECTANGLE
-            );
-
-            setColor(
-                    Color.argb(
-                            225,
-                            5,
-                            30,
-                            70
-                    )
-            );
-
-            setStroke(
-                    4,
-                    Color.rgb(
-                            0,
-                            150,
-                            255
-                    )
-            );
-
-            setCornerRadius(30);
-        }
-    }
-
-    private class SignalPanel
-            extends android.graphics.drawable.GradientDrawable {
-
-        SignalPanel(int color) {
-
-            setShape(
-                    android.graphics.drawable
-                            .GradientDrawable.RECTANGLE
-            );
-
-            setColor(
-                    Color.argb(
-                            230,
-                            Color.red(color),
-                            Color.green(color),
-                            Color.blue(color)
-                    )
-            );
-
-            setStroke(
-                    4,
-                    Color.WHITE
-            );
-
-            setCornerRadius(30);
-        }
     }
 }
