@@ -110,13 +110,18 @@ public class ScreenCaptureService extends Service {
                 intent.getAction();
 
         if (ACTION_STOP.equals(action)) {
+
             stopCaptureInternal();
+
             stopSelf();
+
             return START_NOT_STICKY;
         }
 
         if (ACTION_SCAN.equals(action)) {
+
             requestScan();
+
             return START_STICKY;
         }
 
@@ -169,7 +174,9 @@ public class ScreenCaptureService extends Service {
                             );
 
             if (manager == null) {
+
                 sendState(false);
+
                 return;
             }
 
@@ -180,7 +187,9 @@ public class ScreenCaptureService extends Service {
                     );
 
             if (mediaProjection == null) {
+
                 sendState(false);
+
                 return;
             }
 
@@ -234,6 +243,7 @@ public class ScreenCaptureService extends Service {
         } catch (Exception e) {
 
             captureActive = false;
+
             sendState(false);
         }
     }
@@ -249,10 +259,14 @@ public class ScreenCaptureService extends Service {
          * Prevent excessive bitmap allocation.
          */
         if (now - lastFrameTime < 100) {
+
             Image old = null;
 
             try {
-                old = reader.acquireLatestImage();
+
+                old =
+                        reader.acquireLatestImage();
+
             } catch (Exception ignored) {
             }
 
@@ -281,6 +295,7 @@ public class ScreenCaptureService extends Service {
 
             if (planes == null ||
                     planes.length == 0) {
+
                 return;
             }
 
@@ -362,6 +377,7 @@ public class ScreenCaptureService extends Service {
 
             if (latestFrame == null ||
                     latestFrame.isRecycled()) {
+
                 return null;
             }
 
@@ -385,7 +401,7 @@ public class ScreenCaptureService extends Service {
 
             sendResult(
                     "NO TRADE",
-                    0,
+                    0.0,
                     0,
                     0,
                     0,
@@ -406,7 +422,7 @@ public class ScreenCaptureService extends Service {
 
             sendResult(
                     "NO TRADE",
-                    0,
+                    0.0,
                     0,
                     0,
                     0,
@@ -427,9 +443,7 @@ public class ScreenCaptureService extends Service {
             try {
 
                 /*
-                 * IMPORTANT:
-                 * Explicitly use the TOP-LEVEL Analyzer.
-                 * There is no duplicate inner Analyzer anymore.
+                 * Use the TOP-LEVEL Analyzer.
                  */
                 result =
                         com.mdjibon.scanner.Analyzer
@@ -440,21 +454,26 @@ public class ScreenCaptureService extends Service {
                 result =
                         new Analyzer.Result();
 
-                result.signal = "NO TRADE";
-                result.confidence = 0;
-                result.quality = 0;
-                result.evaluatedRules = 0;
-                result.detectedCandles = 0;
+                result.signal =
+                        "NO TRADE";
+
+                result.confidence =
+                        0.0;
+
+                result.quality =
+                        0;
+
+                result.evaluatedRules =
+                        0;
+
+                result.detectedCandles =
+                        0;
             }
 
             if (!frame.isRecycled()) {
                 frame.recycle();
             }
 
-            /*
-             * Progress now represents the analysis stage.
-             * The Analyzer itself evaluates all 100 rules.
-             */
             sendProgress(20);
 
             mainHandler.postDelayed(
@@ -495,7 +514,7 @@ public class ScreenCaptureService extends Service {
 
             sendResult(
                     "NO TRADE",
-                    0,
+                    0.0,
                     0,
                     0,
                     0,
@@ -512,17 +531,20 @@ public class ScreenCaptureService extends Service {
                 !"DOWN".equals(signal) &&
                 !"NO TRADE".equals(signal)) {
 
-            signal = "NO TRADE";
+            signal =
+                    "NO TRADE";
         }
 
         int rules =
                 result.evaluatedRules;
 
         /*
-         * Never falsely report 100.
+         * Never falsely report 100 rules.
          */
         if (rules != 100) {
-            signal = "NO TRADE";
+
+            signal =
+                    "NO TRADE";
         }
 
         sendResult(
@@ -552,7 +574,10 @@ public class ScreenCaptureService extends Service {
                 "progress",
                 Math.max(
                         0,
-                        Math.min(100, progress)
+                        Math.min(
+                                100,
+                                progress
+                        )
                 )
         );
 
@@ -580,9 +605,19 @@ public class ScreenCaptureService extends Service {
         sendBroadcast(intent);
     }
 
+    /*
+     * IMPORTANT:
+     *
+     * confidence is DOUBLE because
+     * Analyzer.Result.confidence is DOUBLE.
+     *
+     * This fixes:
+     *
+     * possible lossy conversion from double to int
+     */
     private void sendResult(
             String signal,
-            int confidence,
+            double confidence,
             int quality,
             int ruleCount,
             int candles,
@@ -603,6 +638,9 @@ public class ScreenCaptureService extends Service {
                 signal
         );
 
+        /*
+         * Keep confidence as DOUBLE.
+         */
         intent.putExtra(
                 "confidence",
                 confidence
@@ -688,6 +726,7 @@ public class ScreenCaptureService extends Service {
                             );
 
             if (manager != null) {
+
                 manager.createNotificationChannel(
                         channel
                 );
@@ -698,32 +737,46 @@ public class ScreenCaptureService extends Service {
     private void stopCaptureInternal() {
 
         captureActive = false;
+
         scanning = false;
 
         try {
+
             if (virtualDisplay != null) {
+
                 virtualDisplay.release();
+
                 virtualDisplay = null;
             }
+
         } catch (Exception ignored) {
         }
 
         try {
+
             if (imageReader != null) {
+
                 imageReader.close();
+
                 imageReader = null;
             }
+
         } catch (Exception ignored) {
         }
 
         try {
+
             if (mediaProjection != null) {
+
                 mediaProjection.unregisterCallback(
                         projectionCallback
                 );
+
                 mediaProjection.stop();
+
                 mediaProjection = null;
             }
+
         } catch (Exception ignored) {
         }
 
@@ -747,6 +800,7 @@ public class ScreenCaptureService extends Service {
         stopCaptureInternal();
 
         if (executor != null) {
+
             executor.shutdownNow();
         }
 
@@ -755,7 +809,10 @@ public class ScreenCaptureService extends Service {
 
     @Nullable
     @Override
-    public IBinder onBind(Intent intent) {
+    public IBinder onBind(
+            Intent intent
+    ) {
+
         return null;
     }
 }
