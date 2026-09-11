@@ -14,6 +14,9 @@
         android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <uses-permission
         android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
@@ -47,7 +50,14 @@
 
         <service
             android:name=".FloatingScannerService"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="floating screen scanner overlay" />
+
+        </service>
 
     </application>
 
