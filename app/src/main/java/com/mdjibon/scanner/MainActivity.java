@@ -14,7 +14,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -27,6 +26,7 @@ public class MainActivity extends Activity {
 
     private TextView status;
     private TextView result;
+
     private Button captureButton;
     private Button overlayButton;
     private Button timeframeButton;
@@ -46,29 +46,58 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         buildUI();
+        registerScannerReceiver();
+        requestNotificationPermissionIfNeeded();
+    }
+
+    private void registerScannerReceiver() {
 
         receiver = new BroadcastReceiver() {
+
             @Override
-            public void onReceive(Context context, Intent intent) {
+            public void onReceive(
+                    Context context,
+                    Intent intent
+            ) {
 
-                String action = intent.getAction();
+                if (intent == null) {
+                    return;
+                }
 
-                if (ScreenCaptureService.ACTION_RESULT.equals(action)) {
+                String action =
+                        intent.getAction();
+
+                if (ScreenCaptureService.ACTION_RESULT
+                        .equals(action)) {
 
                     String signal =
-                            intent.getStringExtra("signal");
+                            intent.getStringExtra(
+                                    "signal"
+                            );
 
                     int confidence =
-                            intent.getIntExtra("confidence", 0);
+                            intent.getIntExtra(
+                                    "confidence",
+                                    0
+                            );
 
                     int quality =
-                            intent.getIntExtra("quality", 0);
+                            intent.getIntExtra(
+                                    "quality",
+                                    0
+                            );
 
                     int rules =
-                            intent.getIntExtra("ruleCount", 100);
+                            intent.getIntExtra(
+                                    "ruleCount",
+                                    100
+                            );
 
                     int candles =
-                            intent.getIntExtra("detectedCandles", 0);
+                            intent.getIntExtra(
+                                    "detectedCandles",
+                                    0
+                            );
 
                     String timeframe =
                             intent.getStringExtra(
@@ -80,38 +109,66 @@ public class MainActivity extends Activity {
                                     "candleSize"
                             );
 
+                    if (signal == null) {
+                        signal = "NO TRADE";
+                    }
+
+                    if (timeframe == null) {
+                        timeframe = getTimeframe();
+                    }
+
+                    if (candleSize == null) {
+                        candleSize = "UNKNOWN";
+                    }
+
                     result.setText(
                             signal +
-                            "\nScore: " +
-                            confidence +
-                            "%" +
-                            "\n" +
-                            timeframe +
-                            " • " +
-                            candleSize +
-                            "\n100 Logic Checks: " +
-                            rules +
-                            "\nCandles: " +
-                            candles +
-                            "\nFrame Quality: " +
-                            quality +
-                            "%"
+                                    "\nScore: " +
+                                    confidence +
+                                    "%" +
+                                    "\n" +
+                                    timeframe +
+                                    " • " +
+                                    candleSize +
+                                    "\n100 Logic Checks: " +
+                                    rules +
+                                    "\nCandles: " +
+                                    candles +
+                                    "\nFrame Quality: " +
+                                    quality +
+                                    "%"
                     );
 
                     if ("UP".equals(signal)) {
+
                         result.setTextColor(
-                                Color.rgb(30, 235, 135)
+                                Color.rgb(
+                                        30,
+                                        235,
+                                        135
+                                )
                         );
+
                     } else if ("DOWN".equals(signal)) {
+
                         result.setTextColor(
-                                Color.rgb(255, 70, 85)
+                                Color.rgb(
+                                        255,
+                                        70,
+                                        85
+                                )
                         );
+
                     } else {
-                        result.setTextColor(Color.WHITE);
+
+                        result.setTextColor(
+                                Color.WHITE
+                        );
                     }
 
                     status.setText(
-                            "SCAN COMPLETE • " + signal
+                            "SCAN COMPLETE • " +
+                                    signal
                     );
                 }
 
@@ -129,7 +186,8 @@ public class MainActivity extends Activity {
             }
         };
 
-        IntentFilter filter = new IntentFilter();
+        IntentFilter filter =
+                new IntentFilter();
 
         filter.addAction(
                 ScreenCaptureService.ACTION_RESULT
@@ -140,17 +198,23 @@ public class MainActivity extends Activity {
         );
 
         if (Build.VERSION.SDK_INT >= 33) {
+
             registerReceiver(
                     receiver,
                     filter,
                     Context.RECEIVER_NOT_EXPORTED
             );
+
         } else {
+
             registerReceiver(
                     receiver,
                     filter
             );
         }
+    }
+
+    private void requestNotificationPermissionIfNeeded() {
 
         if (Build.VERSION.SDK_INT >= 33 &&
                 checkSelfPermission(
@@ -183,14 +247,22 @@ public class MainActivity extends Activity {
         );
 
         root.setBackgroundColor(
-                Color.rgb(8, 12, 20)
+                Color.rgb(
+                        8,
+                        12,
+                        20
+                )
         );
 
         TextView title =
                 text(
                         "MD JIBON",
                         30,
-                        Color.rgb(40, 220, 255)
+                        Color.rgb(
+                                40,
+                                220,
+                                255
+                        )
                 );
 
         root.addView(title);
@@ -263,7 +335,7 @@ public class MainActivity extends Activity {
 
         timeframeButton.setText(
                 "TIMEFRAME: " +
-                getTimeframe()
+                        getTimeframe()
         );
 
         timeframeButton.setOnClickListener(
@@ -281,7 +353,7 @@ public class MainActivity extends Activity {
         TextView help =
                 text(
                         "Quotex খুলে Floating Scanner logo-তে চাপুন।\n" +
-                        "Logo drag করে যেকোনো জায়গায় নেওয়া যাবে।",
+                                "Logo drag করে যেকোনো জায়গায় নেওয়া যাবে।",
                         15,
                         Color.LTGRAY
                 );
@@ -297,8 +369,7 @@ public class MainActivity extends Activity {
 
         result =
                 text(
-                        "WAIT\n" +
-                        "Score: --%",
+                        "WAIT\nScore: --%",
                         25,
                         Color.WHITE
                 );
@@ -325,12 +396,14 @@ public class MainActivity extends Activity {
         TextView note =
                 text(
                         "100 technical checks • " +
-                        "rule-agreement score",
+                                "rule-agreement score",
                         13,
                         Color.GRAY
                 );
 
-        note.setGravity(Gravity.CENTER);
+        note.setGravity(
+                Gravity.CENTER
+        );
 
         root.addView(note);
 
@@ -349,6 +422,7 @@ public class MainActivity extends Activity {
         t.setText(value);
         t.setTextSize(size);
         t.setTextColor(color);
+
         t.setPadding(
                 0,
                 8,
@@ -368,7 +442,7 @@ public class MainActivity extends Activity {
                             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                             Uri.parse(
                                     "package:" +
-                                    getPackageName()
+                                            getPackageName()
                             )
                     );
 
@@ -403,19 +477,35 @@ public class MainActivity extends Activity {
 
         } else {
 
-            if (Build.VERSION.SDK_INT >= 26) {
-                startForegroundService(service);
-            } else {
-                startService(service);
+            try {
+
+                if (Build.VERSION.SDK_INT >= 26) {
+
+                    startForegroundService(
+                            service
+                    );
+
+                } else {
+
+                    startService(service);
+                }
+
+                overlayButton.setText(
+                        "1. FLOATING SCANNER OFF"
+                );
+
+                status.setText(
+                        "FLOATING SCANNER ON"
+                );
+
+            } catch (Exception e) {
+
+                Toast.makeText(
+                        this,
+                        "Floating Scanner চালু করা যায়নি",
+                        Toast.LENGTH_LONG
+                ).show();
             }
-
-            overlayButton.setText(
-                    "1. FLOATING SCANNER OFF"
-            );
-
-            status.setText(
-                    "FLOATING SCANNER ON"
-            );
         }
     }
 
@@ -433,7 +523,10 @@ public class MainActivity extends Activity {
                     ScreenCaptureService.ACTION_STOP
             );
 
-            startService(stop);
+            try {
+                startService(stop);
+            } catch (Exception ignored) {
+            }
 
             return;
         }
@@ -445,11 +538,13 @@ public class MainActivity extends Activity {
                         );
 
         if (manager == null) {
+
             Toast.makeText(
                     this,
                     "Screen Capture unavailable",
                     Toast.LENGTH_LONG
             ).show();
+
             return;
         }
 
@@ -466,6 +561,10 @@ public class MainActivity extends Activity {
     private void updateCaptureButton(
             boolean active
     ) {
+
+        if (captureButton == null) {
+            return;
+        }
 
         if (active) {
 
@@ -508,6 +607,7 @@ public class MainActivity extends Activity {
              i++) {
 
             if (TIMEFRAMES[i].equals(current)) {
+
                 index = i;
                 break;
             }
@@ -557,49 +657,63 @@ public class MainActivity extends Activity {
                 data
         );
 
-        if (requestCode ==
-                CAPTURE_REQUEST) {
+        if (requestCode != CAPTURE_REQUEST) {
+            return;
+        }
 
-            if (resultCode != RESULT_OK ||
-                    data == null) {
+        if (resultCode != RESULT_OK ||
+                data == null) {
 
-                status.setText(
-                        "SCREEN CAPTURE CANCELLED"
+            status.setText(
+                    "SCREEN CAPTURE CANCELLED"
+            );
+
+            Toast.makeText(
+                    this,
+                    "Screen Capture অনুমতি দেওয়া হয়নি",
+                    Toast.LENGTH_LONG
+            ).show();
+
+            return;
+        }
+
+        Intent service =
+                new Intent(
+                        this,
+                        ScreenCaptureService.class
                 );
 
-                Toast.makeText(
-                        this,
-                        "Screen Capture অনুমতি দেওয়া হয়নি",
-                        Toast.LENGTH_LONG
-                ).show();
+        service.putExtra(
+                "resultCode",
+                resultCode
+        );
 
-                return;
-            }
+        service.putExtra(
+                "data",
+                data
+        );
 
-            Intent service =
-                    new Intent(
-                            this,
-                            ScreenCaptureService.class
-                    );
-
-            service.putExtra(
-                    "resultCode",
-                    resultCode
-            );
-
-            service.putExtra(
-                    "data",
-                    data
-            );
+        try {
 
             if (Build.VERSION.SDK_INT >= 26) {
-                startForegroundService(service);
+
+                startForegroundService(
+                        service
+                );
+
             } else {
+
                 startService(service);
             }
 
             status.setText(
                     "STARTING SCREEN CAPTURE..."
+            );
+
+        } catch (Exception e) {
+
+            status.setText(
+                    "SCREEN CAPTURE START FAILED"
             );
         }
     }
@@ -628,6 +742,14 @@ public class MainActivity extends Activity {
         updateCaptureButton(
                 ScreenCaptureService.isCaptureActive()
         );
+
+        if (timeframeButton != null) {
+
+            timeframeButton.setText(
+                    "TIMEFRAME: " +
+                            getTimeframe()
+            );
+        }
     }
 
     @Override
@@ -639,6 +761,8 @@ public class MainActivity extends Activity {
                 unregisterReceiver(receiver);
             } catch (Exception ignored) {
             }
+
+            receiver = null;
         }
 
         super.onDestroy();
