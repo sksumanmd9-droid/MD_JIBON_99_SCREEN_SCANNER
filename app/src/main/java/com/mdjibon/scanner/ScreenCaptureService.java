@@ -402,7 +402,7 @@ public class ScreenCaptureService extends Service {
             sendResult(
                     "NO TRADE",
                     0.0,
-                    0,
+                    0.0,
                     0,
                     0,
                     "UNKNOWN"
@@ -423,7 +423,7 @@ public class ScreenCaptureService extends Service {
             sendResult(
                     "NO TRADE",
                     0.0,
-                    0,
+                    0.0,
                     0,
                     0,
                     "UNKNOWN"
@@ -461,7 +461,7 @@ public class ScreenCaptureService extends Service {
                         0.0;
 
                 result.quality =
-                        0;
+                        0.0;
 
                 result.evaluatedRules =
                         0;
@@ -515,7 +515,7 @@ public class ScreenCaptureService extends Service {
             sendResult(
                     "NO TRADE",
                     0.0,
-                    0,
+                    0.0,
                     0,
                     0,
                     "UNKNOWN"
@@ -606,19 +606,13 @@ public class ScreenCaptureService extends Service {
     }
 
     /*
-     * IMPORTANT:
-     *
-     * confidence is DOUBLE because
-     * Analyzer.Result.confidence is DOUBLE.
-     *
-     * This fixes:
-     *
-     * possible lossy conversion from double to int
+     * confidence and quality are DOUBLE
+     * because Analyzer.Result uses double.
      */
     private void sendResult(
             String signal,
             double confidence,
-            int quality,
+            double quality,
             int ruleCount,
             int candles,
             String timeframe
@@ -638,9 +632,6 @@ public class ScreenCaptureService extends Service {
                 signal
         );
 
-        /*
-         * Keep confidence as DOUBLE.
-         */
         intent.putExtra(
                 "confidence",
                 confidence
