@@ -15,7 +15,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
-import android.net.Uri; 
+import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -63,13 +63,31 @@ public class FloatingScannerService extends Service {
 
     private BroadcastReceiver receiver;
 
-    private boolean running = false;
+    /*
+     * IMPORTANT:
+     * MainActivity calls FloatingScannerService.isRunning().
+     * Therefore this state must be static.
+     */
+    private static volatile boolean running = false;
+
     private boolean scanning = false;
 
     private int savedX = 20;
     private int savedY = 250;
 
     private final Handler handler = new Handler();
+
+    // ============================================================
+    // SERVICE STATE
+    // ============================================================
+
+    public static boolean isRunning() {
+        return running;
+    }
+
+    // ============================================================
+    // CREATE
+    // ============================================================
 
     @Override
     public void onCreate() {
@@ -81,11 +99,18 @@ public class FloatingScannerService extends Service {
         createReceiver();
     }
 
+    // ============================================================
+    // START SERVICE
+    // ============================================================
+
     @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
+    public int onStartCommand(
+            Intent intent,
+            int flags,
+            int startId
+    ) {
 
         /*
-         * IMPORTANT:
          * Floating service must become foreground immediately.
          */
         startFloatingForeground();
@@ -101,6 +126,7 @@ public class FloatingScannerService extends Service {
             ).show();
 
             try {
+
                 Intent settingsIntent =
                         new Intent(
                                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -118,7 +144,10 @@ public class FloatingScannerService extends Service {
             } catch (Exception ignored) {
             }
 
+            running = false;
+
             stopSelf();
+
             return START_NOT_STICKY;
         }
 
@@ -164,14 +193,16 @@ public class FloatingScannerService extends Service {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
 
-            builder = new Notification.Builder(
-                    this,
-                    CHANNEL_ID
-            );
+            builder =
+                    new Notification.Builder(
+                            this,
+                            CHANNEL_ID
+                    );
 
         } else {
 
-            builder = new Notification.Builder(this);
+            builder =
+                    new Notification.Builder(this);
         }
 
         Notification notification =
@@ -188,10 +219,6 @@ public class FloatingScannerService extends Service {
                         .setOngoing(true)
                         .build();
 
-        /*
-         * Two-argument version is intentional.
-         * The service type is declared in AndroidManifest.xml.
-         */
         startForeground(
                 NOTIFICATION_ID,
                 notification
@@ -266,7 +293,11 @@ public class FloatingScannerService extends Service {
         if (logoView != null) {
 
             try {
-                windowManager.removeView(logoView);
+
+                windowManager.removeView(
+                        logoView
+                );
+
             } catch (Exception ignored) {
             }
 
@@ -334,17 +365,25 @@ public class FloatingScannerService extends Service {
         }
 
         @Override
-        public boolean onTouchEvent(MotionEvent event) {
+        public boolean onTouchEvent(
+                MotionEvent event
+        ) {
 
             switch (event.getActionMasked()) {
 
                 case MotionEvent.ACTION_DOWN:
 
-                    downX = event.getRawX();
-                    downY = event.getRawY();
+                    downX =
+                            event.getRawX();
 
-                    startX = logoParams.x;
-                    startY = logoParams.y;
+                    downY =
+                            event.getRawY();
+
+                    startX =
+                            logoParams.x;
+
+                    startY =
+                            logoParams.y;
 
                     downTime =
                             System.currentTimeMillis();
@@ -385,12 +424,20 @@ public class FloatingScannerService extends Service {
 
                     float totalMove =
                             Math.abs(
-                                    event.getRawX() - downX
+                                    event.getRawX()
+                                            - downX
                             )
                             +
                             Math.abs(
-                                    event.getRawY() - downY
+                                    event.getRawY()
+                                            - downY
                             );
+
+                    /*
+                     * Save the latest logo position.
+                     */
+                    savedX = logoParams.x;
+                    savedY = logoParams.y;
 
                     /*
                      * Small movement = click.
@@ -452,9 +499,16 @@ public class FloatingScannerService extends Service {
 
         } catch (Exception e) {
 
+            android.util.Log.e(
+                    TAG,
+                    "Failed to start scan",
+                    e
+            );
+
             scanning = false;
 
             removeScanView();
+
             createLogo();
         }
     }
@@ -514,6 +568,11 @@ public class FloatingScannerService extends Service {
                     "Scan view add failed",
                     e
             );
+
+            scanView = null;
+            scanning = false;
+
+            createLogo();
         }
     }
 
@@ -521,8 +580,14 @@ public class FloatingScannerService extends Service {
 
         if (scanView != null) {
 
+            scanView.stopAnimation();
+
             try {
-                windowManager.removeView(scanView);
+
+                windowManager.removeView(
+                        scanView
+                );
+
             } catch (Exception ignored) {
             }
 
@@ -543,7 +608,13 @@ public class FloatingScannerService extends Service {
 
         scanning = false;
 
+        /*
+         * Make sure the floating logo returns
+         * at its last saved position.
+         */
         createLogo();
+
+        removeResult();
 
         resultView =
                 new ResultView(
@@ -572,7 +643,8 @@ public class FloatingScannerService extends Service {
         resultParams.y =
                 (logoParams != null
                         ? logoParams.y
-                        : savedY) + dp(70);
+                        : savedY)
+                        + dp(70);
 
         resultParams.flags =
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
@@ -613,7 +685,11 @@ public class FloatingScannerService extends Service {
         if (resultView != null) {
 
             try {
-                windowManager.removeView(resultView);
+
+                windowManager.removeView(
+                        resultView
+                );
+
             } catch (Exception ignored) {
             }
 
@@ -637,6 +713,8 @@ public class FloatingScannerService extends Service {
         private float radarAngle = 0;
 
         private int progress = 0;
+
+        private boolean animationRunning = true;
 
         public ScanView(Context context) {
 
@@ -664,6 +742,10 @@ public class FloatingScannerService extends Service {
                     @Override
                     public void run() {
 
+                        if (!animationRunning) {
+                            return;
+                        }
+
                         lineY += dp(8);
 
                         if (lineY > getHeight()) {
@@ -685,6 +767,15 @@ public class FloatingScannerService extends Service {
                     }
                 };
 
+        public void stopAnimation() {
+
+            animationRunning = false;
+
+            removeCallbacks(
+                    animationRunnable
+            );
+        }
+
         @Override
         protected void onDraw(Canvas canvas) {
 
@@ -694,6 +785,10 @@ public class FloatingScannerService extends Service {
             int h = getHeight();
 
             // Transparent dark-blue overlay
+            paint.setStyle(
+                    Paint.Style.FILL
+            );
+
             paint.setColor(
                     Color.argb(
                             55,
@@ -921,6 +1016,10 @@ public class FloatingScannerService extends Service {
             float h = getHeight();
 
             // Card
+            paint.setStyle(
+                    Paint.Style.FILL
+            );
+
             paint.setColor(
                     Color.argb(
                             245,
@@ -943,7 +1042,9 @@ public class FloatingScannerService extends Service {
             );
 
             boolean up =
-                    "UP".equalsIgnoreCase(signal);
+                    "UP".equalsIgnoreCase(
+                            signal
+                    );
 
             paint.setColor(
                     up
@@ -975,7 +1076,9 @@ public class FloatingScannerService extends Service {
             );
 
             String direction =
-                    up ? "↑ UP" : "↓ DOWN";
+                    up
+                            ? "↑ UP"
+                            : "↓ DOWN";
 
             canvas.drawText(
                     direction,
@@ -1149,7 +1252,11 @@ public class FloatingScannerService extends Service {
         if (receiver != null) {
 
             try {
-                unregisterReceiver(receiver);
+
+                unregisterReceiver(
+                        receiver
+                );
+
             } catch (Exception ignored) {
             }
 
@@ -1161,6 +1268,7 @@ public class FloatingScannerService extends Service {
             stopForeground(
                     STOP_FOREGROUND_REMOVE
             );
+
         } else {
 
             stopForeground(true);
@@ -1168,6 +1276,10 @@ public class FloatingScannerService extends Service {
 
         super.onDestroy();
     }
+
+    // ============================================================
+    // BIND
+    // ============================================================
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -1181,10 +1293,12 @@ public class FloatingScannerService extends Service {
     private int dp(float value) {
 
         return (int)
-                (value *
-                        getResources()
-                                .getDisplayMetrics()
-                                .density
-                        + 0.5f);
+                (
+                        value *
+                                getResources()
+                                        .getDisplayMetrics()
+                                        .density
+                                + 0.5f
+                );
     }
 }
