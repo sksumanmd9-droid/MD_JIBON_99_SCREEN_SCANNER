@@ -3,6 +3,7 @@ package com.mdjibon.scanner;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -74,6 +75,7 @@ public class FloatingScannerService extends Service {
         }
 
         if (receiver == null) {
+
             receiver =
                     new BroadcastReceiverHolder(
                             this
@@ -129,6 +131,8 @@ public class FloatingScannerService extends Service {
                         300
                 );
 
+        clampLogo();
+
         logoButton.setOnTouchListener(
                 new View.OnTouchListener() {
 
@@ -138,7 +142,9 @@ public class FloatingScannerService extends Service {
                             MotionEvent event
                     ) {
 
-                        switch (event.getActionMasked()) {
+                        switch (
+                                event.getActionMasked()
+                        ) {
 
                             case MotionEvent.ACTION_DOWN:
 
@@ -162,11 +168,11 @@ public class FloatingScannerService extends Service {
 
                                 float dx =
                                         event.getRawX()
-                                        - downRawX;
+                                                - downRawX;
 
                                 float dy =
                                         event.getRawY()
-                                        - downRawY;
+                                                - downRawY;
 
                                 if (Math.abs(dx) > dp(8) ||
                                         Math.abs(dy) > dp(8)) {
@@ -175,18 +181,24 @@ public class FloatingScannerService extends Service {
 
                                     logoParams.x =
                                             downX +
-                                            (int) dx;
+                                                    (int) dx;
 
                                     logoParams.y =
                                             downY +
-                                            (int) dy;
+                                                    (int) dy;
 
                                     clampLogo();
 
-                                    windowManager.updateViewLayout(
-                                            logoButton,
-                                            logoParams
-                                    );
+                                    try {
+
+                                        windowManager
+                                                .updateViewLayout(
+                                                        logoButton,
+                                                        logoParams
+                                                );
+
+                                    } catch (Exception ignored) {
+                                    }
                                 }
 
                                 return true;
@@ -194,7 +206,9 @@ public class FloatingScannerService extends Service {
                             case MotionEvent.ACTION_UP:
 
                                 if (!dragging) {
+
                                     startScan();
+
                                 } else {
 
                                     prefs.edit()
@@ -217,10 +231,17 @@ public class FloatingScannerService extends Service {
                 }
         );
 
-        windowManager.addView(
-                logoButton,
-                logoParams
-        );
+        try {
+
+            windowManager.addView(
+                    logoButton,
+                    logoParams
+            );
+
+        } catch (Exception e) {
+
+            logoButton = null;
+        }
     }
 
     private void clampLogo() {
@@ -240,7 +261,10 @@ public class FloatingScannerService extends Service {
                         0,
                         Math.min(
                                 logoParams.x,
-                                width - dp(58)
+                                Math.max(
+                                        0,
+                                        width - dp(58)
+                                )
                         )
                 );
 
@@ -249,7 +273,10 @@ public class FloatingScannerService extends Service {
                         0,
                         Math.min(
                                 logoParams.y,
-                                height - dp(58)
+                                Math.max(
+                                        0,
+                                        height - dp(58)
+                                )
                         )
                 );
     }
@@ -276,9 +303,12 @@ public class FloatingScannerService extends Service {
 
         scanVisible = true;
 
-        logoButton.setVisibility(
-                View.INVISIBLE
-        );
+        if (logoButton != null) {
+
+            logoButton.setVisibility(
+                    View.INVISIBLE
+            );
+        }
 
         showScanView();
 
@@ -292,7 +322,22 @@ public class FloatingScannerService extends Service {
                 ScreenCaptureService.ACTION_SCAN
         );
 
-        startService(scan);
+        try {
+
+            startService(scan);
+
+        } catch (Exception e) {
+
+            scanVisible = false;
+
+            if (logoButton != null) {
+                logoButton.setVisibility(
+                        View.VISIBLE
+                );
+            }
+
+            removeScanView();
+        }
     }
 
     private void showScanView() {
@@ -310,17 +355,31 @@ public class FloatingScannerService extends Service {
                                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                                 : WindowManager.LayoutParams.TYPE_PHONE,
                         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                         android.graphics.PixelFormat.TRANSLUCENT
                 );
 
         scanParams.gravity =
                 Gravity.CENTER;
 
-        windowManager.addView(
-                scanView,
-                scanParams
-        );
+        try {
+
+            windowManager.addView(
+                    scanView,
+                    scanParams
+            );
+
+        } catch (Exception e) {
+
+            scanView = null;
+            scanVisible = false;
+
+            if (logoButton != null) {
+                logoButton.setVisibility(
+                        View.VISIBLE
+                );
+            }
+        }
     }
 
     private void showResult(
@@ -336,7 +395,10 @@ public class FloatingScannerService extends Service {
 
         scanVisible = false;
 
+        dismissResult();
+
         if (logoButton != null) {
+
             logoButton.setVisibility(
                     View.VISIBLE
             );
@@ -420,7 +482,9 @@ public class FloatingScannerService extends Service {
                 new TextView(this);
 
         signalText.setText(
-                signal
+                signal == null
+                        ? "NO TRADE"
+                        : signal
         );
 
         signalText.setTextSize(24);
@@ -478,18 +542,18 @@ public class FloatingScannerService extends Service {
 
             details.setText(
                     timeframe +
-                    "\nCandles: " +
-                    candles +
-                    "\nQuality: " +
-                    quality +
-                    "%"
+                            "\nCandles: " +
+                            candles +
+                            "\nQuality: " +
+                            quality +
+                            "%"
             );
 
         } else {
 
             details.setText(
                     "Tap scanner again after\n" +
-                    "Screen Capture is enabled."
+                            "Screen Capture is enabled."
             );
         }
 
@@ -520,25 +584,36 @@ public class FloatingScannerService extends Service {
 
         resultParams.gravity =
                 Gravity.TOP |
-                Gravity.LEFT;
+                        Gravity.LEFT;
 
         resultParams.x =
-                logoParams.x;
+                logoParams != null
+                        ? logoParams.x
+                        : 18;
 
         resultParams.y =
-                Math.max(
+                logoParams != null
+                        ? Math.max(
                         10,
                         logoParams.y - dp(205)
-                );
+                )
+                        : 10;
 
         card.setOnClickListener(
                 v -> dismissResult()
         );
 
-        windowManager.addView(
-                resultView,
-                resultParams
-        );
+        try {
+
+            windowManager.addView(
+                    resultView,
+                    resultParams
+            );
+
+        } catch (Exception e) {
+
+            resultView = null;
+        }
     }
 
     private void dismissResult() {
@@ -546,9 +621,11 @@ public class FloatingScannerService extends Service {
         if (resultView != null) {
 
             try {
+
                 windowManager.removeView(
                         resultView
                 );
+
             } catch (Exception ignored) {
             }
 
@@ -556,9 +633,15 @@ public class FloatingScannerService extends Service {
         }
 
         if (logoButton != null) {
-            logoButton.setVisibility(
-                    View.VISIBLE
-            );
+
+            try {
+
+                logoButton.setVisibility(
+                        View.VISIBLE
+                );
+
+            } catch (Exception ignored) {
+            }
         }
     }
 
@@ -567,9 +650,11 @@ public class FloatingScannerService extends Service {
         if (scanView != null) {
 
             try {
+
                 windowManager.removeView(
                         scanView
                 );
+
             } catch (Exception ignored) {
             }
 
@@ -580,11 +665,13 @@ public class FloatingScannerService extends Service {
     private int dp(int value) {
 
         return (int)
-                (value *
-                        getResources()
-                                .getDisplayMetrics()
-                                .density +
-                        0.5f);
+                (
+                        value *
+                                getResources()
+                                        .getDisplayMetrics()
+                                        .density
+                                + 0.5f
+                );
     }
 
     private class LogoButton extends View {
@@ -619,6 +706,11 @@ public class FloatingScannerService extends Service {
         ) {
 
             super.onDraw(canvas);
+
+            if (bitmap == null ||
+                    bitmap.isRecycled()) {
+                return;
+            }
 
             RectF dst =
                     new RectF(
@@ -677,7 +769,7 @@ public class FloatingScannerService extends Service {
 
                         long elapsed =
                                 System.currentTimeMillis()
-                                - startTime;
+                                        - startTime;
 
                         progress =
                                 Math.min(
@@ -688,6 +780,7 @@ public class FloatingScannerService extends Service {
                         invalidate();
 
                         if (progress < 100) {
+
                             handler.postDelayed(
                                     this,
                                     20
@@ -726,6 +819,11 @@ public class FloatingScannerService extends Service {
                     dp(30),
                     paint
             );
+
+            if (bitmap == null ||
+                    bitmap.isRecycled()) {
+                return;
+            }
 
             float size =
                     Math.min(
@@ -770,9 +868,11 @@ public class FloatingScannerService extends Service {
 
             float lineY =
                     top +
-                    (size *
-                            progress /
-                            100f);
+                            (
+                                    size *
+                                            progress /
+                                            100f
+                            );
 
             canvas.drawLine(
                     left,
@@ -815,7 +915,7 @@ public class FloatingScannerService extends Service {
 
             canvas.drawText(
                     ((int) progress) +
-                    "/100",
+                            "/100",
                     w / 2f,
                     dp(325),
                     paint
@@ -867,6 +967,10 @@ public class FloatingScannerService extends Service {
                 Context context,
                 Intent intent
         ) {
+
+            if (intent == null) {
+                return;
+            }
 
             String action =
                     intent.getAction();
@@ -925,6 +1029,14 @@ public class FloatingScannerService extends Service {
                                 "candleSize"
                         );
 
+                if (timeframe == null) {
+                    timeframe = "1 MIN";
+                }
+
+                if (candleSize == null) {
+                    candleSize = "UNKNOWN";
+                }
+
                 showResult(
                         signal,
                         confidence,
@@ -951,9 +1063,11 @@ public class FloatingScannerService extends Service {
         if (receiver != null) {
 
             try {
+
                 unregisterReceiver(
                         receiver
                 );
+
             } catch (Exception ignored) {
             }
 
@@ -965,9 +1079,11 @@ public class FloatingScannerService extends Service {
         if (resultView != null) {
 
             try {
+
                 windowManager.removeView(
                         resultView
                 );
+
             } catch (Exception ignored) {
             }
 
@@ -977,9 +1093,11 @@ public class FloatingScannerService extends Service {
         if (logoButton != null) {
 
             try {
+
                 windowManager.removeView(
                         logoButton
                 );
+
             } catch (Exception ignored) {
             }
 
