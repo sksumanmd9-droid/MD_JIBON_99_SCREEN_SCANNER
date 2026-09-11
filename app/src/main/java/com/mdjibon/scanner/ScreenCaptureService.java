@@ -67,18 +67,20 @@ public class ScreenCaptureService extends Service {
     private long lastFrameCopyTime = 0;
 
     private final Handler mainHandler =
-            new Handler(Looper.getMainLooper());
+            new Handler(
+                    Looper.getMainLooper()
+            );
 
     private final ExecutorService executor =
             Executors.newSingleThreadExecutor();
 
-    private volatile boolean scanning =
-            false;
+    private volatile boolean scanning = false;
 
     private int progress = 0;
 
     private final Runnable progressRunnable =
             new Runnable() {
+
                 @Override
                 public void run() {
 
@@ -95,6 +97,7 @@ public class ScreenCaptureService extends Service {
                     sendProgress(progress);
 
                     if (progress < 100) {
+
                         mainHandler.postDelayed(
                                 this,
                                 35
@@ -269,16 +272,7 @@ public class ScreenCaptureService extends Service {
             }
 
             mediaProjection.registerCallback(
-                    new MediaProjection.Callback() {
-
-                        @Override
-                        public void onStop() {
-
-                            releaseProjection();
-
-                            sendState(false);
-                        }
-                    },
+                    projectionCallback,
                     mainHandler
             );
 
@@ -301,7 +295,8 @@ public class ScreenCaptureService extends Service {
                     ImageReader.newInstance(
                             width,
                             height,
-                            android.graphics.PixelFormat.RGBA_8888,
+                            android.graphics.PixelFormat
+                                    .RGBA_8888,
                             2
                     );
 
@@ -336,6 +331,25 @@ public class ScreenCaptureService extends Service {
             stopSelf();
         }
     }
+
+    private final MediaProjection.Callback projectionCallback =
+            new MediaProjection.Callback() {
+
+                @Override
+                public void onStop() {
+
+                    mainHandler.post(
+                            () -> {
+
+                                releaseProjection(
+                                        false
+                                );
+
+                                sendState(false);
+                            }
+                    );
+                }
+            };
 
     private void copyLatestImage(
             ImageReader reader
@@ -388,12 +402,13 @@ public class ScreenCaptureService extends Service {
 
             int rowPadding =
                     rowStride -
-                    pixelStride * width;
+                            pixelStride *
+                                    width;
 
             int bitmapWidth =
                     width +
-                    rowPadding /
-                            pixelStride;
+                            rowPadding /
+                                    pixelStride;
 
             Bitmap raw =
                     Bitmap.createBitmap(
@@ -493,7 +508,6 @@ public class ScreenCaptureService extends Service {
         }
 
         scanning = true;
-
         progress = 0;
 
         sendProgress(0);
@@ -549,9 +563,8 @@ public class ScreenCaptureService extends Service {
                     int delay =
                             Math.max(
                                     0,
-                                    1000 -
-                                            progress *
-                                            35
+                                    2200 -
+                                            progress * 35
                             );
 
                     mainHandler.postDelayed(
@@ -708,8 +721,7 @@ public class ScreenCaptureService extends Service {
                     new NotificationChannel(
                             CHANNEL_ID,
                             "MD JIBON Screen Scanner",
-                            NotificationManager
-                                    .IMPORTANCE_LOW
+                            NotificationManager.IMPORTANCE_LOW
                     );
 
             manager.createNotificationChannel(
@@ -719,41 +731,54 @@ public class ScreenCaptureService extends Service {
     }
 
     private void releaseProjection() {
+        releaseProjection(true);
+    }
+
+    private void releaseProjection(
+            boolean stopProjection
+    ) {
 
         captureActive = false;
 
-        try {
-
-            if (virtualDisplay != null) {
-                virtualDisplay.release();
-            }
-
-        } catch (Exception ignored) {
-        }
+        VirtualDisplay display =
+                virtualDisplay;
 
         virtualDisplay = null;
 
-        try {
+        if (display != null) {
 
-            if (imageReader != null) {
-                imageReader.close();
+            try {
+                display.release();
+            } catch (Exception ignored) {
             }
-
-        } catch (Exception ignored) {
         }
+
+        ImageReader reader =
+                imageReader;
 
         imageReader = null;
 
-        try {
+        if (reader != null) {
 
-            if (mediaProjection != null) {
-                mediaProjection.stop();
+            try {
+                reader.close();
+            } catch (Exception ignored) {
             }
-
-        } catch (Exception ignored) {
         }
 
+        MediaProjection projection =
+                mediaProjection;
+
         mediaProjection = null;
+
+        if (projection != null &&
+                stopProjection) {
+
+            try {
+                projection.stop();
+            } catch (Exception ignored) {
+            }
+        }
 
         synchronized (frameLock) {
 
@@ -788,8 +813,13 @@ public class ScreenCaptureService extends Service {
         try {
 
             if (Build.VERSION.SDK_INT >= 24) {
-                stopForeground(STOP_FOREGROUND_REMOVE);
+
+                stopForeground(
+                        STOP_FOREGROUND_REMOVE
+                );
+
             } else {
+
                 stopForeground(true);
             }
 
@@ -880,20 +910,17 @@ public class ScreenCaptureService extends Service {
             List<Candle> candles =
                     detectCandles(bitmap);
 
-            int candleCount =
+            int count =
                     candles.size();
 
-            if (candleCount < 8) {
+            if (count < 8) {
 
                 return new ScanResult(
                         "NO TRADE",
                         0,
-                        Math.min(
-                                40,
-                                candleCount * 5
-                        ),
-                        candleCount,
-                        candleCount > 0
+                        quality(candles),
+                        count,
+                        count > 0
                                 ? candleSize(candles)
                                 : "UNKNOWN"
                 );
@@ -911,6 +938,12 @@ public class ScreenCaptureService extends Service {
             double[] open =
                     opens(candles);
 
+            double last =
+                    close[close.length - 1];
+
+            double previous =
+                    close[close.length - 2];
+
             double sma3 =
                     sma(close, 3);
 
@@ -924,7 +957,7 @@ public class ScreenCaptureService extends Service {
                     sma(close, 13);
 
             double sma21 =
-                    sma(close, Math.min(21, close.length));
+                    sma(close, 21);
 
             double ema5 =
                     ema(close, 5);
@@ -947,7 +980,7 @@ public class ScreenCaptureService extends Service {
             double[] macd =
                     macd(close);
 
-            double stochastic =
+            double stoch =
                     stochastic(
                             close,
                             high,
@@ -955,7 +988,7 @@ public class ScreenCaptureService extends Service {
                             14
                     );
 
-            double stochasticD =
+            double stochD =
                     stochasticD(
                             close,
                             high,
@@ -966,87 +999,56 @@ public class ScreenCaptureService extends Service {
                     sma(close, 20);
 
             double bbDev =
-                    std(
-                            close,
-                            20
-                    );
+                    std(close, 20);
 
             double bbUpper =
-                    bbMid +
-                    2.0 * bbDev;
+                    bbMid + 2 * bbDev;
 
             double bbLower =
-                    bbMid -
-                    2.0 * bbDev;
+                    bbMid - 2 * bbDev;
 
             double atr =
-                    atr(
-                            candles,
-                            14
-                    );
+                    atr(candles, 14);
 
-            double last =
-                    close[close.length - 1];
-
-            double previous =
-                    close[close.length - 2];
-
-            double close2 =
-                    close[
-                            Math.max(
-                                    0,
-                                    close.length - 3
-                            )
-                    ];
-
-            double close3 =
-                    close[
-                            Math.max(
-                                    0,
-                                    close.length - 4
-                            )
-                    ];
+            double momentum3 =
+                    momentum(close, 3);
 
             double momentum5 =
-                    momentum(
-                            close,
-                            5
-                    );
+                    momentum(close, 5);
 
             double momentum8 =
-                    momentum(
-                            close,
-                            8
-                    );
+                    momentum(close, 8);
+
+            double momentum13 =
+                    momentum(close, 13);
 
             double roc3 =
-                    roc(
-                            close,
-                            3
-                    );
+                    roc(close, 3);
 
             double roc5 =
-                    roc(
-                            close,
-                            5
-                    );
+                    roc(close, 5);
+
+            double roc8 =
+                    roc(close, 8);
+
+            double slope3 =
+                    slope(close, 3);
 
             double slope5 =
-                    slope(
-                            close,
-                            5
-                    );
+                    slope(close, 5);
 
             double slope8 =
-                    slope(
-                            close,
-                            8
-                    );
+                    slope(close, 8);
 
             double slope13 =
-                    slope(
-                            close,
-                            13
+                    slope(close, 13);
+
+            double lastOpen =
+                    open[open.length - 1];
+
+            Candle lastCandle =
+                    candles.get(
+                            candles.size() - 1
                     );
 
             double[] votes =
@@ -1056,39 +1058,57 @@ public class ScreenCaptureService extends Service {
                             0
                     };
 
+            /*
+             * 100 TECHNICAL LOGIC CHECKS
+             *
+             * votes[0] = UP
+             * votes[1] = DOWN
+             * votes[2] = evaluated checks
+             */
+
+            // 1-5: price vs SMA
             pair(votes, last > sma3, last < sma3);
             pair(votes, last > sma5, last < sma5);
             pair(votes, last > sma8, last < sma8);
             pair(votes, last > sma13, last < sma13);
             pair(votes, last > sma21, last < sma21);
 
+            // 6-8: SMA structure
             pair(votes, sma3 > sma8, sma3 < sma8);
             pair(votes, sma5 > sma13, sma5 < sma13);
             pair(votes, sma8 > sma21, sma8 < sma21);
 
+            // 9-13: EMA structure
             pair(votes, ema5 > ema8, ema5 < ema8);
             pair(votes, ema8 > ema13, ema8 < ema13);
             pair(votes, ema13 > ema21, ema13 < ema21);
             pair(votes, ema21 > ema34, ema21 < ema34);
+            pair(votes, last > ema21, last < ema21);
 
+            // 14-17: trend slopes
+            pair(votes, slope3 > 0, slope3 < 0);
             pair(votes, slope5 > 0, slope5 < 0);
             pair(votes, slope8 > 0, slope8 < 0);
             pair(votes, slope13 > 0, slope13 < 0);
 
+            // 18-22: price momentum
             pair(votes, last > previous, last < previous);
-            pair(votes, last > close2, last < close2);
-            pair(votes, last > close3, last < close3);
-
+            pair(votes, momentum3 > 0, momentum3 < 0);
             pair(votes, momentum5 > 0, momentum5 < 0);
             pair(votes, momentum8 > 0, momentum8 < 0);
+            pair(votes, momentum13 > 0, momentum13 < 0);
 
+            // 23-25: ROC
             pair(votes, roc3 > 0, roc3 < 0);
             pair(votes, roc5 > 0, roc5 < 0);
+            pair(votes, roc8 > 0, roc8 < 0);
 
+            // 26-28: RSI
+            pair(votes, rsi > 50, rsi < 50);
             pair(votes, rsi > 55, rsi < 45);
             pair(votes, rsi > 60, rsi < 40);
-            pair(votes, rsi > 50, rsi < 50);
 
+            // 29-31: MACD
             pair(votes, macd[0] > macd[1],
                     macd[0] < macd[1]);
 
@@ -1098,22 +1118,22 @@ public class ScreenCaptureService extends Service {
             pair(votes, macd[2] > 0,
                     macd[2] < 0);
 
-            pair(votes, stochastic > stochasticD,
-                    stochastic < stochasticD);
+            // 32-34: Stochastic
+            pair(votes, stoch > stochD,
+                    stoch < stochD);
 
-            pair(votes,
-                    stochastic > 55 &&
-                            stochastic < 80,
-                    stochastic < 45 &&
-                            stochastic > 20);
+            pair(votes, stoch > 55,
+                    stoch < 45);
 
-            pair(votes,
-                    stochastic > 60,
-                    stochastic < 40);
+            pair(votes, stoch > 70,
+                    stoch < 30);
 
-            pair(votes,
-                    last > bbMid,
+            // 35-38: Bollinger
+            pair(votes, last > bbMid,
                     last < bbMid);
+
+            pair(votes, last > bbUpper,
+                    last < bbLower);
 
             pair(votes,
                     last > bbLower &&
@@ -1123,20 +1143,13 @@ public class ScreenCaptureService extends Service {
 
             pair(votes,
                     last > bbUpper &&
-                            close[close.length - 2]
-                                    < bbUpper,
+                            previous < bbUpper,
                     last < bbLower &&
-                            close[close.length - 2]
-                                    > bbLower);
+                            previous > bbLower);
 
-            pair(votes,
-                    momentum5 > atr * 0.15,
-                    momentum5 < -atr * 0.15);
-
-            Candle lastCandle =
-                    candles.get(
-                            candles.size() - 1
-                    );
+            // 39-42: candle direction/body
+            pair(votes, lastCandle.green,
+                    !lastCandle.green);
 
             pair(votes,
                     candleBodyRatio(lastCandle) > 0.60 &&
@@ -1145,32 +1158,73 @@ public class ScreenCaptureService extends Service {
                             !lastCandle.green);
 
             pair(votes,
+                    candleBodyRatio(lastCandle) > 0.75 &&
+                            lastCandle.green,
+                    candleBodyRatio(lastCandle) > 0.75 &&
+                            !lastCandle.green);
+
+            pair(votes,
                     upperClose(lastCandle),
                     lowerClose(lastCandle));
 
+            // 43-44: wick rejection
             pair(votes,
                     lowerWickRejection(lastCandle),
                     upperWickRejection(lastCandle));
 
             pair(votes,
+                    lowerWickRejection(lastCandle) &&
+                            lastCandle.green,
+                    upperWickRejection(lastCandle) &&
+                            !lastCandle.green);
+
+            // 45-46: engulfing
+            pair(votes,
                     bullishEngulfing(candles),
                     bearishEngulfing(candles));
+
+            pair(votes,
+                    bullishHarami(candles),
+                    bearishHarami(candles));
+
+            // 47-50: consecutive candles
+            pair(votes,
+                    consecutiveGreen(candles, 2),
+                    consecutiveRed(candles, 2));
 
             pair(votes,
                     consecutiveGreen(candles, 3),
                     consecutiveRed(candles, 3));
 
             pair(votes,
-                    consecutiveGreen(candles, 2),
-                    consecutiveRed(candles, 2));
+                    consecutiveGreen(candles, 4),
+                    consecutiveRed(candles, 4));
+
+            pair(votes,
+                    consecutiveGreen(candles, 5),
+                    consecutiveRed(candles, 5));
+
+            // 51-54: structure
+            pair(votes,
+                    higherHigh(candles, 3),
+                    lowerLow(candles, 3));
 
             pair(votes,
                     higherHigh(candles, 4),
                     lowerLow(candles, 4));
 
             pair(votes,
+                    higherLow(candles, 3),
+                    lowerHigh(candles, 3));
+
+            pair(votes,
                     higherLow(candles, 4),
                     lowerHigh(candles, 4));
+
+            // 55-58: breakout
+            pair(votes,
+                    last > recentHigh(close, 5),
+                    last < recentLow(close, 5));
 
             pair(votes,
                     last > recentHigh(close, 8),
@@ -1181,20 +1235,30 @@ public class ScreenCaptureService extends Service {
                     last < recentLow(close, 13));
 
             pair(votes,
+                    last > recentHigh(close, 20),
+                    last < recentLow(close, 20));
+
+            // 59-62: support/resistance reaction
+            pair(votes,
                     bounceFromLow(candles),
                     rejectFromHigh(candles));
 
-            /*
-             * FIXED:
-             * close was an array.
-             * Compare the last close value instead.
-             */
-            double lastOpen =
-                    open[open.length - 1];
+            pair(votes,
+                    bullishPin(candles),
+                    bearishPin(candles));
 
             pair(votes,
-                    last > lastOpen,
-                    last < lastOpen);
+                    nearSupport(candles),
+                    nearResistance(candles));
+
+            pair(votes,
+                    supportBreak(candles),
+                    resistanceBreak(candles));
+
+            // 63-66: net movement
+            pair(votes,
+                    netMove(close, 3) > 0,
+                    netMove(close, 3) < 0);
 
             pair(votes,
                     netMove(close, 5) > 0,
@@ -1208,11 +1272,18 @@ public class ScreenCaptureService extends Service {
                     netMove(close, 13) > 0,
                     netMove(close, 13) < 0);
 
+            // 67-70: volatility/body
             pair(votes,
-                    averageBody(candles, 5) >
-                            averageBody(candles, 10),
-                    averageBody(candles, 5) <
-                            averageBody(candles, 10));
+                    averageBody(candles, 3) >
+                            averageBody(candles, 8),
+                    averageBody(candles, 3) <
+                            averageBody(candles, 8));
+
+            pair(votes,
+                    averageRange(candles, 3) >
+                            averageRange(candles, 8),
+                    averageRange(candles, 3) <
+                            averageRange(candles, 8));
 
             pair(votes,
                     lastBodyGrowing(candles) &&
@@ -1225,6 +1296,154 @@ public class ScreenCaptureService extends Service {
                             lastCandle.green,
                     lastRangeGrowing(candles) &&
                             !lastCandle.green);
+
+            // 71-74: candle position
+            pair(votes,
+                    lastCandle.close >
+                            lastCandle.open,
+                    lastCandle.close <
+                            lastCandle.open);
+
+            pair(votes,
+                    lastCandle.close >
+                            lastCandle.low +
+                                    lastCandle.range * 0.60,
+                    lastCandle.close <
+                            lastCandle.low +
+                                    lastCandle.range * 0.40);
+
+            pair(votes,
+                    closeNearHigh(lastCandle),
+                    closeNearLow(lastCandle));
+
+            pair(votes,
+                    bodyAboveAverage(candles),
+                    bodyBelowAverage(candles));
+
+            // 75-78: EMA momentum
+            pair(votes,
+                    ema5 > ema5Prev(close, 5),
+                    ema5 < ema5Prev(close, 5));
+
+            pair(votes,
+                    ema8 > ema8Prev(close, 8),
+                    ema8 < ema8Prev(close, 8));
+
+            pair(votes,
+                    ema13 > ema13Prev(close, 13),
+                    ema13 < ema13Prev(close, 13));
+
+            pair(votes,
+                    ema21 > ema21Prev(close, 21),
+                    ema21 < ema21Prev(close, 21));
+
+            // 79-82: RSI zones
+            pair(votes,
+                    rsi >= 52 && rsi <= 68,
+                    rsi >= 32 && rsi <= 48);
+
+            pair(votes,
+                    rsi > 65,
+                    rsi < 35);
+
+            pair(votes,
+                    rsi > 55 && slope5 > 0,
+                    rsi < 45 && slope5 < 0);
+
+            pair(votes,
+                    rsi > 50 && last > ema13,
+                    rsi < 50 && last < ema13);
+
+            // 83-86: stochastic zones
+            pair(votes,
+                    stoch > 50 && stoch > stochD,
+                    stoch < 50 && stoch < stochD);
+
+            pair(votes,
+                    stoch < 80 && stoch > 50,
+                    stoch > 20 && stoch < 50);
+
+            pair(votes,
+                    stoch < 25,
+                    stoch > 75);
+
+            pair(votes,
+                    stoch > 60 && stochD > 50,
+                    stoch < 40 && stochD < 50);
+
+            // 87-90: Bollinger position
+            pair(votes,
+                    last > bbMid && slope5 > 0,
+                    last < bbMid && slope5 < 0);
+
+            pair(votes,
+                    last > bbUpper,
+                    last < bbLower);
+
+            pair(votes,
+                    last > bbLower && last < bbUpper &&
+                            last > bbMid,
+                    last > bbLower && last < bbUpper &&
+                            last < bbMid);
+
+            pair(votes,
+                    bbDev > atr,
+                    bbDev < atr);
+
+            // 91-94: ATR / volatility
+            pair(votes,
+                    momentum5 > atr * 0.15,
+                    momentum5 < -atr * 0.15);
+
+            pair(votes,
+                    momentum8 > atr * 0.20,
+                    momentum8 < -atr * 0.20);
+
+            pair(votes,
+                    lastCandle.range > atr,
+                    lastCandle.range < atr);
+
+            pair(votes,
+                    lastCandle.body > atr * 0.40 &&
+                            lastCandle.green,
+                    lastCandle.body > atr * 0.40 &&
+                            !lastCandle.green);
+
+            // 95-98: multi-time style confirmation
+            pair(votes,
+                    sma3 > sma13 && ema5 > ema21,
+                    sma3 < sma13 && ema5 < ema21);
+
+            pair(votes,
+                    ema8 > ema34,
+                    ema8 < ema34);
+
+            pair(votes,
+                    last > sma21 && slope13 > 0,
+                    last < sma21 && slope13 < 0);
+
+            pair(votes,
+                    momentum3 > 0 &&
+                            momentum8 > 0,
+                    momentum3 < 0 &&
+                            momentum8 < 0);
+
+            // 99-100: final composite checks
+            pair(votes,
+                    last > lastOpen &&
+                            rsi > 50 &&
+                            macd[0] > macd[1],
+                    last < lastOpen &&
+                            rsi < 50 &&
+                            macd[0] < macd[1]);
+
+            pair(votes,
+                    ema5 > ema13 &&
+                            ema13 > ema34 &&
+                            slope8 > 0,
+                    ema5 < ema13 &&
+                            ema13 < ema34 &&
+                            slope8 < 0);
 
             int up =
                     (int) votes[0];
@@ -1232,22 +1451,32 @@ public class ScreenCaptureService extends Service {
             int down =
                     (int) votes[1];
 
+            int evaluated =
+                    (int) votes[2];
+
+            if (evaluated < 100) {
+                evaluated = 100;
+            }
+
+            int strongest =
+                    Math.max(
+                            up,
+                            down
+                    );
+
             int total =
                     up + down;
 
-            if (total < 12) {
+            if (total < 15) {
 
                 return new ScanResult(
                         "NO TRADE",
                         0,
                         quality(candles),
-                        candles.size(),
+                        count,
                         candleSize(candles)
                 );
             }
-
-            int strongest =
-                    Math.max(up, down);
 
             int confidence =
                     (int) Math.round(
@@ -1259,44 +1488,47 @@ public class ScreenCaptureService extends Service {
                                             total
                     );
 
-            if (strongest < 12 ||
+            confidence =
+                    Math.max(
+                            50,
+                            Math.min(
+                                    99,
+                                    confidence
+                            )
+                    );
+
+            if (strongest < 15 ||
                     confidence < 60) {
 
                 return new ScanResult(
                         "NO TRADE",
                         confidence,
                         quality(candles),
-                        candles.size(),
+                        count,
                         candleSize(candles)
                 );
             }
+
+            String signal;
 
             if (up > down) {
 
-                return new ScanResult(
-                        "UP",
-                        confidence,
-                        quality(candles),
-                        candles.size(),
-                        candleSize(candles)
-                );
+                signal = "UP";
 
             } else if (down > up) {
 
-                return new ScanResult(
-                        "DOWN",
-                        confidence,
-                        quality(candles),
-                        candles.size(),
-                        candleSize(candles)
-                );
+                signal = "DOWN";
+
+            } else {
+
+                signal = "NO TRADE";
             }
 
             return new ScanResult(
-                    "NO TRADE",
-                    50,
+                    signal,
+                    confidence,
                     quality(candles),
-                    candles.size(),
+                    count,
                     candleSize(candles)
             );
         }
@@ -1325,8 +1557,11 @@ public class ScreenCaptureService extends Service {
             ArrayList<Candle> list =
                     new ArrayList<>();
 
-            int w = bitmap.getWidth();
-            int h = bitmap.getHeight();
+            int w =
+                    bitmap.getWidth();
+
+            int h =
+                    bitmap.getHeight();
 
             int left =
                     (int) (w * 0.04);
@@ -1427,14 +1662,18 @@ public class ScreenCaptureService extends Service {
 
             for (int[] group : groups) {
 
-                int x1 = group[0];
-                int x2 = group[1];
+                int x1 =
+                        group[0];
+
+                int x2 =
+                        group[1];
 
                 int groupWidth =
                         x2 - x1 + 1;
 
                 if (groupWidth < 2 ||
                         groupWidth > 30) {
+
                     continue;
                 }
 
@@ -1652,15 +1891,18 @@ public class ScreenCaptureService extends Service {
                 int n
         ) {
 
-            n =
-                    Math.min(
-                            n,
-                            a.length
-                    );
-
             if (a.length == 0) {
                 return 0;
             }
+
+            n =
+                    Math.max(
+                            1,
+                            Math.min(
+                                    n,
+                                    a.length
+                            )
+                    );
 
             double k =
                     2.0 /
@@ -1676,10 +1918,66 @@ public class ScreenCaptureService extends Service {
                 value =
                         a[i] * k +
                                 value *
-                                        (1.0 - k);
+                                        (1 - k);
             }
 
             return value;
+        }
+
+        private static double emaPrev(
+                double[] a,
+                int n
+        ) {
+
+            if (a.length < 3) {
+                return a[a.length - 1];
+            }
+
+            double[] previous =
+                    new double[
+                            a.length - 1
+                    ];
+
+            System.arraycopy(
+                    a,
+                    0,
+                    previous,
+                    0,
+                    previous.length
+            );
+
+            return ema(
+                    previous,
+                    n
+            );
+        }
+
+        private static double ema5Prev(
+                double[] a,
+                int n
+        ) {
+            return emaPrev(a, n);
+        }
+
+        private static double ema8Prev(
+                double[] a,
+                int n
+        ) {
+            return emaPrev(a, n);
+        }
+
+        private static double ema13Prev(
+                double[] a,
+                int n
+        ) {
+            return emaPrev(a, n);
+        }
+
+        private static double ema21Prev(
+                double[] a,
+                int n
+        ) {
+            return emaPrev(a, n);
         }
 
         private static double rsi(
@@ -1710,14 +2008,20 @@ public class ScreenCaptureService extends Service {
                                 a[i - 1];
 
                 if (d > 0) {
+
                     gain += d;
+
                 } else {
+
                     loss -= d;
                 }
             }
 
             if (loss == 0) {
-                return gain > 0 ? 100 : 50;
+
+                return gain > 0
+                        ? 100
+                        : 50;
             }
 
             double rs =
@@ -1742,16 +2046,7 @@ public class ScreenCaptureService extends Service {
                     e12 - e26;
 
             double signal =
-                    ema(
-                            new double[]{
-                                    line,
-                                    line * 0.8,
-                                    line * 0.6,
-                                    line * 0.4,
-                                    line * 0.2
-                            },
-                            5
-                    );
+                    line * 0.80;
 
             return new double[]{
                     line,
@@ -1855,15 +2150,13 @@ public class ScreenCaptureService extends Service {
                             );
                 }
 
-                double value;
-
                 if (hi == lo) {
 
-                    value = 50;
+                    sum += 50;
 
                 } else {
 
-                    value =
+                    sum +=
                             100 *
                                     (
                                             close[
@@ -1872,8 +2165,6 @@ public class ScreenCaptureService extends Service {
                                     ) /
                                     (hi - lo);
                 }
-
-                sum += value;
             }
 
             return sum / 3.0;
@@ -2029,6 +2320,24 @@ public class ScreenCaptureService extends Service {
                             c.range * 0.30;
         }
 
+        private static boolean closeNearHigh(
+                Candle c
+        ) {
+
+            return c.close >
+                    c.low +
+                            c.range * 0.80;
+        }
+
+        private static boolean closeNearLow(
+                Candle c
+        ) {
+
+            return c.close <
+                    c.low +
+                            c.range * 0.20;
+        }
+
         private static boolean lowerWickRejection(
                 Candle c
         ) {
@@ -2098,6 +2407,70 @@ public class ScreenCaptureService extends Service {
                     b.close <= a.open;
         }
 
+        private static boolean bullishHarami(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 2) {
+                return false;
+            }
+
+            Candle a =
+                    c.get(c.size() - 2);
+
+            Candle b =
+                    c.get(c.size() - 1);
+
+            return !a.green &&
+                    b.green &&
+                    Math.min(
+                            b.open,
+                            b.close
+                    ) > Math.min(
+                            a.open,
+                            a.close
+                    ) &&
+                    Math.max(
+                            b.open,
+                            b.close
+                    ) < Math.max(
+                            a.open,
+                            a.close
+                    );
+        }
+
+        private static boolean bearishHarami(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 2) {
+                return false;
+            }
+
+            Candle a =
+                    c.get(c.size() - 2);
+
+            Candle b =
+                    c.get(c.size() - 1);
+
+            return a.green &&
+                    !b.green &&
+                    Math.min(
+                            b.open,
+                            b.close
+                    ) > Math.min(
+                            a.open,
+                            a.close
+                    ) &&
+                    Math.max(
+                            b.open,
+                            b.close
+                    ) < Math.max(
+                            a.open,
+                            a.close
+                    );
+        }
+
         private static boolean consecutiveGreen(
                 List<Candle> c,
                 int n
@@ -2153,6 +2526,10 @@ public class ScreenCaptureService extends Service {
                             c.size() - 1
                     );
 
+            if (n <= 0) {
+                return false;
+            }
+
             for (int i =
                     c.size() - n;
                  i < c.size();
@@ -2178,6 +2555,10 @@ public class ScreenCaptureService extends Service {
                             n,
                             c.size() - 1
                     );
+
+            if (n <= 0) {
+                return false;
+            }
 
             for (int i =
                     c.size() - n;
@@ -2205,6 +2586,10 @@ public class ScreenCaptureService extends Service {
                             c.size() - 1
                     );
 
+            if (n <= 0) {
+                return false;
+            }
+
             for (int i =
                     c.size() - n;
                  i < c.size();
@@ -2231,6 +2616,10 @@ public class ScreenCaptureService extends Service {
                             c.size() - 1
                     );
 
+            if (n <= 0) {
+                return false;
+            }
+
             for (int i =
                     c.size() - n;
                  i < c.size();
@@ -2250,6 +2639,10 @@ public class ScreenCaptureService extends Service {
                 double[] a,
                 int n
         ) {
+
+            if (a.length < 2) {
+                return a[a.length - 1];
+            }
 
             n =
                     Math.min(
@@ -2279,6 +2672,10 @@ public class ScreenCaptureService extends Service {
                 double[] a,
                 int n
         ) {
+
+            if (a.length < 2) {
+                return a[a.length - 1];
+            }
 
             n =
                     Math.min(
@@ -2368,6 +2765,158 @@ public class ScreenCaptureService extends Service {
                                     last.range * 0.25;
         }
 
+        private static boolean bullishPin(
+                List<Candle> c
+        ) {
+
+            if (c.isEmpty()) {
+                return false;
+            }
+
+            Candle x =
+                    c.get(c.size() - 1);
+
+            return x.green &&
+                    lowerWickRejection(x) &&
+                    candleBodyRatio(x) < 0.50;
+        }
+
+        private static boolean bearishPin(
+                List<Candle> c
+        ) {
+
+            if (c.isEmpty()) {
+                return false;
+            }
+
+            Candle x =
+                    c.get(c.size() - 1);
+
+            return !x.green &&
+                    upperWickRejection(x) &&
+                    candleBodyRatio(x) < 0.50;
+        }
+
+        private static boolean nearSupport(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 5) {
+                return false;
+            }
+
+            Candle x =
+                    c.get(c.size() - 1);
+
+            double low =
+                    Double.MAX_VALUE;
+
+            for (int i =
+                    c.size() - 5;
+                 i < c.size() - 1;
+                 i++) {
+
+                low =
+                        Math.min(
+                                low,
+                                c.get(i).low
+                        );
+            }
+
+            return Math.abs(
+                    x.low - low
+            ) <= x.range * 0.35;
+        }
+
+        private static boolean nearResistance(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 5) {
+                return false;
+            }
+
+            Candle x =
+                    c.get(c.size() - 1);
+
+            double high =
+                    -Double.MAX_VALUE;
+
+            for (int i =
+                    c.size() - 5;
+                 i < c.size() - 1;
+                 i++) {
+
+                high =
+                        Math.max(
+                                high,
+                                c.get(i).high
+                        );
+            }
+
+            return Math.abs(
+                    x.high - high
+            ) <= x.range * 0.35;
+        }
+
+        private static boolean supportBreak(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 5) {
+                return false;
+            }
+
+            Candle x =
+                    c.get(c.size() - 1);
+
+            double low =
+                    Double.MAX_VALUE;
+
+            for (int i =
+                    c.size() - 5;
+                 i < c.size() - 1;
+                 i++) {
+
+                low =
+                        Math.min(
+                                low,
+                                c.get(i).low
+                        );
+            }
+
+            return x.close < low;
+        }
+
+        private static boolean resistanceBreak(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 5) {
+                return false;
+            }
+
+            Candle x =
+                    c.get(c.size() - 1);
+
+            double high =
+                    -Double.MAX_VALUE;
+
+            for (int i =
+                    c.size() - 5;
+                 i < c.size() - 1;
+                 i++) {
+
+                high =
+                        Math.max(
+                                high,
+                                c.get(i).high
+                        );
+            }
+
+            return x.close > high;
+        }
+
         private static double netMove(
                 double[] a,
                 int n
@@ -2410,6 +2959,35 @@ public class ScreenCaptureService extends Service {
             return sum / n;
         }
 
+        private static double averageRange(
+                List<Candle> c,
+                int n
+        ) {
+
+            n =
+                    Math.min(
+                            n,
+                            c.size()
+                    );
+
+            if (n <= 0) {
+                return 0;
+            }
+
+            double sum = 0;
+
+            for (int i =
+                    c.size() - n;
+                 i < c.size();
+                 i++) {
+
+                sum +=
+                        c.get(i).range;
+            }
+
+            return sum / n;
+        }
+
         private static boolean lastBodyGrowing(
                 List<Candle> c
         ) {
@@ -2442,12 +3020,52 @@ public class ScreenCaptureService extends Service {
                     ).range;
         }
 
+        private static boolean bodyAboveAverage(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 3) {
+                return false;
+            }
+
+            return c.get(
+                    c.size() - 1
+            ).body >
+                    averageBody(
+                            c,
+                            Math.min(
+                                    8,
+                                    c.size()
+                            )
+                    );
+        }
+
+        private static boolean bodyBelowAverage(
+                List<Candle> c
+        ) {
+
+            if (c.size() < 3) {
+                return false;
+            }
+
+            return c.get(
+                    c.size() - 1
+            ).body <
+                    averageBody(
+                            c,
+                            Math.min(
+                                    8,
+                                    c.size()
+                            )
+                    );
+        }
+
         private static int quality(
                 List<Candle> c
         ) {
 
             int q =
-                    c.size() * 3;
+                    c.size() * 4;
 
             return Math.min(
                     100,
