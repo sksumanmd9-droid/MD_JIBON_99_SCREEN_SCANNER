@@ -79,16 +79,16 @@ public class MainActivity extends Activity {
                                             "signal"
                                     );
 
-                            int confidence =
-                                    intent.getIntExtra(
+                            double confidence =
+                                    intent.getDoubleExtra(
                                             "confidence",
-                                            0
+                                            0.0
                                     );
 
-                            int quality =
-                                    intent.getIntExtra(
+                            double quality =
+                                    intent.getDoubleExtra(
                                             "quality",
-                                            0
+                                            0.0
                                     );
 
                             int rules =
@@ -120,11 +120,14 @@ public class MainActivity extends Activity {
                             if (!"UP".equals(signal) &&
                                     !"DOWN".equals(signal) &&
                                     !"NO TRADE".equals(signal)) {
-                                signal = "NO TRADE";
+
+                                signal =
+                                        "NO TRADE";
                             }
 
                             if (timeframe == null) {
-                                timeframe = getTimeframe();
+                                timeframe =
+                                        getTimeframe();
                             }
 
                             if (candleSize == null) {
