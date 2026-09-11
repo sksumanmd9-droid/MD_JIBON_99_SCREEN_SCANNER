@@ -42,7 +42,9 @@ public class MainActivity extends Activity {
     };
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(
+            Bundle savedInstanceState
+    ) {
         super.onCreate(savedInstanceState);
 
         buildUI();
@@ -52,136 +54,152 @@ public class MainActivity extends Activity {
 
     private void registerScannerReceiver() {
 
-        receiver = new BroadcastReceiver() {
+        receiver =
+                new BroadcastReceiver() {
 
-            @Override
-            public void onReceive(
-                    Context context,
-                    Intent intent
-            ) {
+                    @Override
+                    public void onReceive(
+                            Context context,
+                            Intent intent
+                    ) {
 
-                if (intent == null) {
-                    return;
-                }
+                        if (intent == null) {
+                            return;
+                        }
 
-                String action = intent.getAction();
+                        String action =
+                                intent.getAction();
 
-                if (ScreenCaptureService.ACTION_RESULT
-                        .equals(action)) {
+                        if (ScreenCaptureService
+                                .ACTION_RESULT
+                                .equals(action)) {
 
-                    String signal =
-                            intent.getStringExtra("signal");
+                            String signal =
+                                    intent.getStringExtra(
+                                            "signal"
+                                    );
 
-                    int confidence =
-                            intent.getIntExtra(
-                                    "confidence",
-                                    0
+                            int confidence =
+                                    intent.getIntExtra(
+                                            "confidence",
+                                            0
+                                    );
+
+                            int quality =
+                                    intent.getIntExtra(
+                                            "quality",
+                                            0
+                                    );
+
+                            int rules =
+                                    intent.getIntExtra(
+                                            "ruleCount",
+                                            0
+                                    );
+
+                            int candles =
+                                    intent.getIntExtra(
+                                            "detectedCandles",
+                                            0
+                                    );
+
+                            String timeframe =
+                                    intent.getStringExtra(
+                                            "timeframe"
+                                    );
+
+                            String candleSize =
+                                    intent.getStringExtra(
+                                            "candleSize"
+                                    );
+
+                            if (signal == null) {
+                                signal = "NO TRADE";
+                            }
+
+                            if (!"UP".equals(signal) &&
+                                    !"DOWN".equals(signal) &&
+                                    !"NO TRADE".equals(signal)) {
+                                signal = "NO TRADE";
+                            }
+
+                            if (timeframe == null) {
+                                timeframe = getTimeframe();
+                            }
+
+                            if (candleSize == null) {
+                                candleSize =
+                                        "SCREEN CHART";
+                            }
+
+                            result.setText(
+                                    signal +
+                                            "\nScore: " +
+                                            confidence +
+                                            "%" +
+                                            "\n" +
+                                            timeframe +
+                                            " • " +
+                                            candleSize +
+                                            "\n100 Logic Checks: " +
+                                            rules +
+                                            "/100" +
+                                            "\nCandles: " +
+                                            candles +
+                                            "\nFrame Quality: " +
+                                            quality +
+                                            "%"
                             );
 
-                    int quality =
-                            intent.getIntExtra(
-                                    "quality",
-                                    0
-                            );
+                            if ("UP".equals(signal)) {
 
-                    int rules =
-                            intent.getIntExtra(
-                                    "ruleCount",
-                                    100
-                            );
+                                result.setTextColor(
+                                        Color.rgb(
+                                                30,
+                                                235,
+                                                135
+                                        )
+                                );
 
-                    int candles =
-                            intent.getIntExtra(
-                                    "detectedCandles",
-                                    0
-                            );
+                            } else if ("DOWN".equals(signal)) {
 
-                    String timeframe =
-                            intent.getStringExtra(
-                                    "timeframe"
-                            );
+                                result.setTextColor(
+                                        Color.rgb(
+                                                255,
+                                                70,
+                                                85
+                                        )
+                                );
 
-                    String candleSize =
-                            intent.getStringExtra(
-                                    "candleSize"
-                            );
+                            } else {
 
-                    if (signal == null) {
-                        signal = "NO TRADE";
+                                result.setTextColor(
+                                        Color.WHITE
+                                );
+                            }
+
+                            status.setText(
+                                    "SCAN COMPLETE • " +
+                                            signal
+                            );
+                        }
+
+                        if (ScreenCaptureService
+                                .ACTION_CAPTURE_STATE
+                                .equals(action)) {
+
+                            boolean active =
+                                    intent.getBooleanExtra(
+                                            "active",
+                                            false
+                                    );
+
+                            updateCaptureButton(
+                                    active
+                            );
+                        }
                     }
-
-                    if (timeframe == null) {
-                        timeframe = getTimeframe();
-                    }
-
-                    if (candleSize == null) {
-                        candleSize = "UNKNOWN";
-                    }
-
-                    result.setText(
-                            signal +
-                                    "\nScore: " +
-                                    confidence +
-                                    "%" +
-                                    "\n" +
-                                    timeframe +
-                                    " • " +
-                                    candleSize +
-                                    "\n100 Logic Checks: " +
-                                    rules +
-                                    "\nCandles: " +
-                                    candles +
-                                    "\nFrame Quality: " +
-                                    quality +
-                                    "%"
-                    );
-
-                    if ("UP".equals(signal)) {
-
-                        result.setTextColor(
-                                Color.rgb(
-                                        30,
-                                        235,
-                                        135
-                                )
-                        );
-
-                    } else if ("DOWN".equals(signal)) {
-
-                        result.setTextColor(
-                                Color.rgb(
-                                        255,
-                                        70,
-                                        85
-                                )
-                        );
-
-                    } else {
-
-                        result.setTextColor(
-                                Color.WHITE
-                        );
-                    }
-
-                    status.setText(
-                            "SCAN COMPLETE • " +
-                                    signal
-                    );
-                }
-
-                if (ScreenCaptureService.ACTION_CAPTURE_STATE
-                        .equals(action)) {
-
-                    boolean active =
-                            intent.getBooleanExtra(
-                                    "active",
-                                    false
-                            );
-
-                    updateCaptureButton(active);
-                }
-            }
-        };
+                };
 
         IntentFilter filter =
                 new IntentFilter();
@@ -349,8 +367,8 @@ public class MainActivity extends Activity {
 
         TextView help =
                 text(
-                        "Quotex খুলে Floating Scanner logo-তে চাপুন।\n" +
-                                "Logo drag করে যেকোনো জায়গায় নেওয়া যাবে।",
+                        "Cortex/Quotex খুলে Floating Scanner logo-তে চাপুন.\n" +
+                                "Logo drag করে যেকোনো জায়গায় নেওয়া যাবে.",
                         15,
                         Color.LTGRAY
                 );
@@ -392,8 +410,8 @@ public class MainActivity extends Activity {
 
         TextView note =
                 text(
-                        "100 technical checks • " +
-                                "rule-agreement score",
+                        "100 deterministic technical checks • " +
+                                "screen-chart rule agreement",
                         13,
                         Color.GRAY
                 );
@@ -521,7 +539,9 @@ public class MainActivity extends Activity {
             );
 
             try {
+
                 startService(stop);
+
             } catch (Exception ignored) {
             }
 
@@ -755,7 +775,9 @@ public class MainActivity extends Activity {
         if (receiver != null) {
 
             try {
-                unregisterReceiver(receiver);
+                unregisterReceiver(
+                        receiver
+                );
             } catch (Exception ignored) {
             }
 
