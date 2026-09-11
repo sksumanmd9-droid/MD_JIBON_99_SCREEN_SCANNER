@@ -1,1149 +1,127 @@
 package com.mdjibon.scanner;
 
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
 import android.app.Service;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.RectF;
-import android.graphics.Typeface;
-import android.net.Uri;
+import android.graphics.PixelFormat;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
-import android.os.Handler;
 import android.os.IBinder;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.annotation.Nullable;
 
 public class FloatingScannerService extends Service {
 
-    private static final String TAG = "MDJIBON";
-
-    private static final String CHANNEL_ID =
-            "md_jibon_floating_scanner";
-
-    private static final int NOTIFICATION_ID = 9902;
-
-    private static final String ACTION_SCAN =
-            "com.mdjibon.scanner.ACTION_SCAN";
-
-    private static final String ACTION_RESULT =
-            "com.mdjibon.scanner.ACTION_RESULT";
-
-    private static final String ACTION_PROGRESS =
-            "com.mdjibon.scanner.ACTION_PROGRESS";
-
-    private static final String EXTRA_SIGNAL =
-            "signal";
-
-    private static final String EXTRA_SCORE =
-            "score";
+    private static volatile boolean running = false;
 
     private WindowManager windowManager;
 
     private View logoView;
-    private WindowManager.LayoutParams logoParams;
-
-    private ScanView scanView;
-    private WindowManager.LayoutParams scanParams;
-
-    private ResultView resultView;
-    private WindowManager.LayoutParams resultParams;
+    private View scanView;
+    private View resultView;
 
     private BroadcastReceiver receiver;
 
-    /*
-     * IMPORTANT:
-     * MainActivity calls FloatingScannerService.isRunning().
-     * Therefore this state must be static.
-     */
-    private static volatile boolean running = false;
-
-    private boolean scanning = false;
-
     private int savedX = 20;
     private int savedY = 250;
-
-    private final Handler handler = new Handler();
-
-    // ============================================================
-    // SERVICE STATE
-    // ============================================================
 
     public static boolean isRunning() {
         return running;
     }
 
-    // ============================================================
-    // CREATE
-    // ============================================================
-
     @Override
     public void onCreate() {
         super.onCreate();
 
-        windowManager =
-                (WindowManager) getSystemService(WINDOW_SERVICE);
-
-        createReceiver();
-    }
-
-    // ============================================================
-    // START SERVICE
-    // ============================================================
-
-    @Override
-    public int onStartCommand(
-            Intent intent,
-            int flags,
-            int startId
-    ) {
-
-        /*
-         * Floating service must become foreground immediately.
-         */
-        startFloatingForeground();
-
         running = true;
+
+        windowManager =
+                (WindowManager)
+                        getSystemService(
+                                WINDOW_SERVICE
+                        );
+
+        registerScannerReceiver();
+
+        if (Build.VERSION.SDK_INT >= 26) {
+            startForeground(
+                    2001,
+                    new android.app.Notification.Builder(
+                            this,
+                            createChannel()
+                    )
+                            .setContentTitle(
+                                    "MD JIBON Scanner"
+                            )
+                            .setContentText(
+                                    "Floating scanner is active"
+                            )
+                            .setSmallIcon(
+                                    android.R.drawable.ic_menu_search
+                            )
+                            .setOngoing(true)
+                            .build()
+            );
+        }
 
         if (!Settings.canDrawOverlays(this)) {
 
             Toast.makeText(
                     this,
-                    "Overlay permission is required",
+                    "Overlay permission দিন",
                     Toast.LENGTH_LONG
             ).show();
 
-            try {
-
-                Intent settingsIntent =
-                        new Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse(
-                                        "package:" + getPackageName()
-                                )
-                        );
-
-                settingsIntent.addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK
-                );
-
-                startActivity(settingsIntent);
-
-            } catch (Exception ignored) {
-            }
-
-            running = false;
-
             stopSelf();
-
-            return START_NOT_STICKY;
+            return;
         }
 
-        if (logoView == null) {
-            createLogo();
-        }
-
-        return START_STICKY;
+        createLogo();
     }
 
-    // ============================================================
-    // FOREGROUND SERVICE
-    // ============================================================
+    private String createChannel() {
 
-    private void startFloatingForeground() {
+        String channelId =
+                "md_jibon_floating";
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= 26) {
 
-            NotificationManager manager =
-                    (NotificationManager)
+            android.app.NotificationChannel channel =
+                    new android.app.NotificationChannel(
+                            channelId,
+                            "MD JIBON Floating Scanner",
+                            android.app.NotificationManager
+                                    .IMPORTANCE_LOW
+                    );
+
+            android.app.NotificationManager manager =
+                    (android.app.NotificationManager)
                             getSystemService(
                                     NOTIFICATION_SERVICE
                             );
 
             if (manager != null) {
-
-                NotificationChannel channel =
-                        new NotificationChannel(
-                                CHANNEL_ID,
-                                "MD JIBON Floating Scanner",
-                                NotificationManager.IMPORTANCE_LOW
-                        );
-
-                channel.setDescription(
-                        "Floating scanner service"
-                );
-
-                manager.createNotificationChannel(channel);
-            }
-        }
-
-        Notification.Builder builder;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-            builder =
-                    new Notification.Builder(
-                            this,
-                            CHANNEL_ID
-                    );
-
-        } else {
-
-            builder =
-                    new Notification.Builder(this);
-        }
-
-        Notification notification =
-                builder
-                        .setContentTitle(
-                                "MD JIBON Scanner"
-                        )
-                        .setContentText(
-                                "Floating scanner is active"
-                        )
-                        .setSmallIcon(
-                                android.R.drawable.ic_menu_view
-                        )
-                        .setOngoing(true)
-                        .build();
-
-        startForeground(
-                NOTIFICATION_ID,
-                notification
-        );
-    }
-
-    // ============================================================
-    // FLOATING LOGO
-    // ============================================================
-
-    private void createLogo() {
-
-        if (logoView != null) {
-            return;
-        }
-
-        logoView = new LogoView(this);
-
-        int size = dp(64);
-
-        logoParams =
-                new WindowManager.LayoutParams();
-
-        logoParams.width = size;
-        logoParams.height = size;
-
-        logoParams.gravity =
-                Gravity.TOP | Gravity.START;
-
-        logoParams.x = savedX;
-        logoParams.y = savedY;
-
-        logoParams.flags =
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-            logoParams.type =
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-
-        } else {
-
-            logoParams.type =
-                    WindowManager.LayoutParams.TYPE_PHONE;
-        }
-
-        logoParams.format =
-                android.graphics.PixelFormat.TRANSLUCENT;
-
-        try {
-
-            windowManager.addView(
-                    logoView,
-                    logoParams
-            );
-
-        } catch (Exception e) {
-
-            android.util.Log.e(
-                    TAG,
-                    "Floating logo addView failed",
-                    e
-            );
-
-            logoView = null;
-        }
-    }
-
-    private void removeLogo() {
-
-        if (logoView != null) {
-
-            try {
-
-                windowManager.removeView(
-                        logoView
-                );
-
-            } catch (Exception ignored) {
-            }
-
-            logoView = null;
-        }
-    }
-
-    // ============================================================
-    // CLICK / DRAG
-    // ============================================================
-
-    private class LogoView extends View {
-
-        private Bitmap logoBitmap;
-
-        private float downX;
-        private float downY;
-
-        private int startX;
-        private int startY;
-
-        private long downTime;
-
-        private final Paint paint =
-                new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        public LogoView(Context context) {
-
-            super(context);
-
-            logoBitmap =
-                    BitmapFactory.decodeResource(
-                            getResources(),
-                            R.drawable.md_jibon_logo
-                    );
-
-            setLayerType(
-                    View.LAYER_TYPE_SOFTWARE,
-                    null
-            );
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-
-            super.onDraw(canvas);
-
-            if (logoBitmap != null) {
-
-                RectF dst =
-                        new RectF(
-                                2,
-                                2,
-                                getWidth() - 2,
-                                getHeight() - 2
-                        );
-
-                canvas.drawBitmap(
-                        logoBitmap,
-                        null,
-                        dst,
-                        paint
+                manager.createNotificationChannel(
+                        channel
                 );
             }
         }
 
-        @Override
-        public boolean onTouchEvent(
-                MotionEvent event
-        ) {
-
-            switch (event.getActionMasked()) {
-
-                case MotionEvent.ACTION_DOWN:
-
-                    downX =
-                            event.getRawX();
-
-                    downY =
-                            event.getRawY();
-
-                    startX =
-                            logoParams.x;
-
-                    startY =
-                            logoParams.y;
-
-                    downTime =
-                            System.currentTimeMillis();
-
-                    return true;
-
-                case MotionEvent.ACTION_MOVE:
-
-                    float dx =
-                            event.getRawX() - downX;
-
-                    float dy =
-                            event.getRawY() - downY;
-
-                    logoParams.x =
-                            startX + (int) dx;
-
-                    logoParams.y =
-                            startY + (int) dy;
-
-                    try {
-
-                        windowManager.updateViewLayout(
-                                this,
-                                logoParams
-                        );
-
-                    } catch (Exception ignored) {
-                    }
-
-                    return true;
-
-                case MotionEvent.ACTION_UP:
-
-                    long duration =
-                            System.currentTimeMillis()
-                                    - downTime;
-
-                    float totalMove =
-                            Math.abs(
-                                    event.getRawX()
-                                            - downX
-                            )
-                            +
-                            Math.abs(
-                                    event.getRawY()
-                                            - downY
-                            );
-
-                    /*
-                     * Save the latest logo position.
-                     */
-                    savedX = logoParams.x;
-                    savedY = logoParams.y;
-
-                    /*
-                     * Small movement = click.
-                     * Large movement = drag.
-                     */
-                    if (duration < 350
-                            && totalMove < dp(12)) {
-
-                        startScan();
-                    }
-
-                    return true;
-            }
-
-            return true;
-        }
+        return channelId;
     }
 
-    // ============================================================
-    // START SCAN
-    // ============================================================
-
-    private void startScan() {
-
-        if (scanning) {
-            return;
-        }
-
-        if (!ScreenCaptureService.isCaptureActive()) {
-
-            Toast.makeText(
-                    this,
-                    "Please turn ON Screen Capture first",
-                    Toast.LENGTH_SHORT
-            ).show();
-
-            return;
-        }
-
-        scanning = true;
-
-        removeLogo();
-
-        showScanView();
-
-        Intent intent =
-                new Intent(
-                        this,
-                        ScreenCaptureService.class
-                );
-
-        intent.setAction(
-                ScreenCaptureService.ACTION_SCAN
-        );
-
-        try {
-
-            startService(intent);
-
-        } catch (Exception e) {
-
-            android.util.Log.e(
-                    TAG,
-                    "Failed to start scan",
-                    e
-            );
-
-            scanning = false;
-
-            removeScanView();
-
-            createLogo();
-        }
-    }
-
-    // ============================================================
-    // SCAN VIEW
-    // ============================================================
-
-    private void showScanView() {
-
-        scanView =
-                new ScanView(this);
-
-        scanParams =
-                new WindowManager.LayoutParams();
-
-        scanParams.width =
-                WindowManager.LayoutParams.MATCH_PARENT;
-
-        scanParams.height =
-                WindowManager.LayoutParams.MATCH_PARENT;
-
-        scanParams.gravity =
-                Gravity.TOP | Gravity.START;
-
-        scanParams.flags =
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-            scanParams.type =
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-
-        } else {
-
-            scanParams.type =
-                    WindowManager.LayoutParams.TYPE_PHONE;
-        }
-
-        scanParams.format =
-                android.graphics.PixelFormat.TRANSLUCENT;
-
-        try {
-
-            windowManager.addView(
-                    scanView,
-                    scanParams
-            );
-
-        } catch (Exception e) {
-
-            android.util.Log.e(
-                    TAG,
-                    "Scan view add failed",
-                    e
-            );
-
-            scanView = null;
-            scanning = false;
-
-            createLogo();
-        }
-    }
-
-    private void removeScanView() {
-
-        if (scanView != null) {
-
-            scanView.stopAnimation();
-
-            try {
-
-                windowManager.removeView(
-                        scanView
-                );
-
-            } catch (Exception ignored) {
-            }
-
-            scanView = null;
-        }
-    }
-
-    // ============================================================
-    // RESULT
-    // ============================================================
-
-    private void showResult(
-            String signal,
-            int score
-    ) {
-
-        removeScanView();
-
-        scanning = false;
-
-        /*
-         * Make sure the floating logo returns
-         * at its last saved position.
-         */
-        createLogo();
-
-        removeResult();
-
-        resultView =
-                new ResultView(
-                        this,
-                        signal,
-                        score
-                );
-
-        resultParams =
-                new WindowManager.LayoutParams();
-
-        resultParams.width =
-                dp(190);
-
-        resultParams.height =
-                dp(82);
-
-        resultParams.gravity =
-                Gravity.TOP | Gravity.START;
-
-        resultParams.x =
-                logoParams != null
-                        ? logoParams.x
-                        : savedX;
-
-        resultParams.y =
-                (logoParams != null
-                        ? logoParams.y
-                        : savedY)
-                        + dp(70);
-
-        resultParams.flags =
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-            resultParams.type =
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-
-        } else {
-
-            resultParams.type =
-                    WindowManager.LayoutParams.TYPE_PHONE;
-        }
-
-        resultParams.format =
-                android.graphics.PixelFormat.TRANSLUCENT;
-
-        try {
-
-            windowManager.addView(
-                    resultView,
-                    resultParams
-            );
-
-        } catch (Exception e) {
-
-            android.util.Log.e(
-                    TAG,
-                    "Result view add failed",
-                    e
-            );
-        }
-    }
-
-    private void removeResult() {
-
-        if (resultView != null) {
-
-            try {
-
-                windowManager.removeView(
-                        resultView
-                );
-
-            } catch (Exception ignored) {
-            }
-
-            resultView = null;
-        }
-    }
-
-    // ============================================================
-    // SCANNING ANIMATION
-    // ============================================================
-
-    private class ScanView extends View {
-
-        private final Paint paint =
-                new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        private Bitmap logoBitmap;
-
-        private float lineY = 0;
-
-        private float radarAngle = 0;
-
-        private int progress = 0;
-
-        private boolean animationRunning = true;
-
-        public ScanView(Context context) {
-
-            super(context);
-
-            logoBitmap =
-                    BitmapFactory.decodeResource(
-                            getResources(),
-                            R.drawable.md_jibon_logo
-                    );
-
-            paint.setTypeface(
-                    Typeface.create(
-                            Typeface.DEFAULT,
-                            Typeface.BOLD
-                    )
-            );
-
-            post(animationRunnable);
-        }
-
-        private final Runnable animationRunnable =
-                new Runnable() {
-
-                    @Override
-                    public void run() {
-
-                        if (!animationRunning) {
-                            return;
-                        }
-
-                        lineY += dp(8);
-
-                        if (lineY > getHeight()) {
-                            lineY = 0;
-                        }
-
-                        radarAngle += 7;
-
-                        if (radarAngle >= 360) {
-                            radarAngle = 0;
-                        }
-
-                        invalidate();
-
-                        postDelayed(
-                                this,
-                                30
-                        );
-                    }
-                };
-
-        public void stopAnimation() {
-
-            animationRunning = false;
-
-            removeCallbacks(
-                    animationRunnable
-            );
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-
-            super.onDraw(canvas);
-
-            int w = getWidth();
-            int h = getHeight();
-
-            // Transparent dark-blue overlay
-            paint.setStyle(
-                    Paint.Style.FILL
-            );
-
-            paint.setColor(
-                    Color.argb(
-                            55,
-                            0,
-                            90,
-                            180
-                    )
-            );
-
-            canvas.drawRect(
-                    0,
-                    0,
-                    w,
-                    h,
-                    paint
-            );
-
-            // Scanning line
-            paint.setColor(
-                    Color.argb(
-                            230,
-                            25,
-                            180,
-                            255
-                    )
-            );
-
-            paint.setStrokeWidth(
-                    dp(3)
-            );
-
-            canvas.drawLine(
-                    0,
-                    lineY,
-                    w,
-                    lineY,
-                    paint
-            );
-
-            // Radar
-            float cx = w / 2f;
-            float cy = h / 2f;
-
-            float radius =
-                    Math.min(w, h) * 0.20f;
-
-            paint.setStyle(
-                    Paint.Style.STROKE
-            );
-
-            paint.setStrokeWidth(
-                    dp(2)
-            );
-
-            paint.setColor(
-                    Color.argb(
-                            130,
-                            25,
-                            175,
-                            255
-                    )
-            );
-
-            canvas.drawCircle(
-                    cx,
-                    cy,
-                    radius,
-                    paint
-            );
-
-            canvas.drawCircle(
-                    cx,
-                    cy,
-                    radius * 0.65f,
-                    paint
-            );
-
-            paint.setStyle(
-                    Paint.Style.FILL
-            );
-
-            canvas.save();
-
-            canvas.rotate(
-                    radarAngle,
-                    cx,
-                    cy
-            );
-
-            paint.setColor(
-                    Color.argb(
-                            130,
-                            25,
-                            220,
-                            255
-                    )
-            );
-
-            canvas.drawRect(
-                    cx,
-                    cy - dp(2),
-                    cx + radius,
-                    cy + dp(2),
-                    paint
-            );
-
-            canvas.restore();
-
-            // Logo
-            if (logoBitmap != null) {
-
-                float logoSize =
-                        dp(82);
-
-                RectF logoRect =
-                        new RectF(
-                                cx - logoSize / 2,
-                                cy - logoSize / 2,
-                                cx + logoSize / 2,
-                                cy + logoSize / 2
-                        );
-
-                canvas.drawBitmap(
-                        logoBitmap,
-                        null,
-                        logoRect,
-                        paint
-                );
-            }
-
-            // SCANNING text
-            paint.setColor(
-                    Color.WHITE
-            );
-
-            paint.setTextAlign(
-                    Paint.Align.CENTER
-            );
-
-            paint.setTypeface(
-                    Typeface.create(
-                            Typeface.DEFAULT,
-                            Typeface.BOLD
-                    )
-            );
-
-            paint.setTextSize(
-                    dp(28)
-            );
-
-            canvas.drawText(
-                    "SCANNING...",
-                    cx,
-                    cy + radius + dp(60),
-                    paint
-            );
-
-            paint.setTextSize(
-                    dp(22)
-            );
-
-            canvas.drawText(
-                    progress + "/100",
-                    cx,
-                    cy + radius + dp(92),
-                    paint
-            );
-        }
-
-        public void setProgress(int value) {
-
-            progress =
-                    Math.max(
-                            0,
-                            Math.min(
-                                    100,
-                                    value
-                            )
-                    );
-
-            invalidate();
-        }
-    }
-
-    // ============================================================
-    // RESULT VIEW
-    // ============================================================
-
-    private class ResultView extends View {
-
-        private final Paint paint =
-                new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        private final String signal;
-        private final int score;
-
-        private Bitmap logoBitmap;
-
-        public ResultView(
-                Context context,
-                String signal,
-                int score
-        ) {
-
-            super(context);
-
-            this.signal = signal;
-            this.score = score;
-
-            logoBitmap =
-                    BitmapFactory.decodeResource(
-                            getResources(),
-                            R.drawable.md_jibon_logo
-                    );
-
-            setClickable(true);
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-
-            super.onDraw(canvas);
-
-            float w = getWidth();
-            float h = getHeight();
-
-            // Card
-            paint.setStyle(
-                    Paint.Style.FILL
-            );
-
-            paint.setColor(
-                    Color.argb(
-                            245,
-                            4,
-                            18,
-                            40
-                    )
-            );
-
-            canvas.drawRoundRect(
-                    new RectF(
-                            2,
-                            2,
-                            w - 2,
-                            h - 2
-                    ),
-                    dp(14),
-                    dp(14),
-                    paint
-            );
-
-            boolean up =
-                    "UP".equalsIgnoreCase(
-                            signal
-                    );
-
-            paint.setColor(
-                    up
-                            ? Color.rgb(
-                                    30,
-                                    220,
-                                    100
-                            )
-                            : Color.rgb(
-                                    255,
-                                    70,
-                                    70
-                            )
-            );
-
-            paint.setTypeface(
-                    Typeface.create(
-                            Typeface.DEFAULT,
-                            Typeface.BOLD
-                    )
-            );
-
-            paint.setTextAlign(
-                    Paint.Align.CENTER
-            );
-
-            paint.setTextSize(
-                    dp(25)
-            );
-
-            String direction =
-                    up
-                            ? "↑ UP"
-                            : "↓ DOWN";
-
-            canvas.drawText(
-                    direction,
-                    w / 2,
-                    dp(34),
-                    paint
-            );
-
-            paint.setColor(
-                    Color.WHITE
-            );
-
-            paint.setTextSize(
-                    dp(18)
-            );
-
-            canvas.drawText(
-                    score + "%",
-                    w / 2,
-                    dp(61),
-                    paint
-            );
-
-            paint.setTextSize(
-                    dp(10)
-            );
-
-            paint.setColor(
-                    Color.rgb(
-                            150,
-                            190,
-                            220
-                    )
-            );
-
-            canvas.drawText(
-                    "100 TECHNICAL CHECKS",
-                    w / 2,
-                    dp(76),
-                    paint
-            );
-        }
-
-        @Override
-        public boolean onTouchEvent(
-                MotionEvent event
-        ) {
-
-            if (event.getAction() ==
-                    MotionEvent.ACTION_UP) {
-
-                removeResult();
-
-                return true;
-            }
-
-            return true;
-        }
-    }
-
-    // ============================================================
-    // BROADCAST RECEIVER
-    // ============================================================
-
-    private void createReceiver() {
+    private void registerScannerReceiver() {
 
         receiver =
                 new BroadcastReceiver() {
@@ -1161,7 +139,12 @@ public class FloatingScannerService extends Service {
                         String action =
                                 intent.getAction();
 
-                        if (ACTION_PROGRESS.equals(action)) {
+                        /*
+                         * SAME ACTION AS ScreenCaptureService.
+                         */
+                        if (ScreenCaptureService
+                                .ACTION_PROGRESS
+                                .equals(action)) {
 
                             int progress =
                                     intent.getIntExtra(
@@ -1169,35 +152,48 @@ public class FloatingScannerService extends Service {
                                             0
                                     );
 
-                            if (scanView != null) {
+                            updateProgress(
+                                    progress
+                            );
 
-                                scanView.setProgress(
-                                        progress
-                                );
-                            }
-
-                        } else if (
-                                ACTION_RESULT.equals(action)
-                        ) {
+                        } else if (ScreenCaptureService
+                                .ACTION_RESULT
+                                .equals(action)) {
 
                             String signal =
                                     intent.getStringExtra(
-                                            EXTRA_SIGNAL
+                                            "signal"
                                     );
 
-                            if (signal == null) {
-                                signal = "DOWN";
-                            }
-
-                            int score =
+                            int confidence =
                                     intent.getIntExtra(
-                                            EXTRA_SCORE,
-                                            50
+                                            "confidence",
+                                            0
+                                    );
+
+                            int rules =
+                                    intent.getIntExtra(
+                                            "ruleCount",
+                                            0
+                                    );
+
+                            int candles =
+                                    intent.getIntExtra(
+                                            "detectedCandles",
+                                            0
+                                    );
+
+                            String timeframe =
+                                    intent.getStringExtra(
+                                            "timeframe"
                                     );
 
                             showResult(
                                     signal,
-                                    score
+                                    confidence,
+                                    rules,
+                                    candles,
+                                    timeframe
                             );
                         }
                     }
@@ -1207,11 +203,11 @@ public class FloatingScannerService extends Service {
                 new IntentFilter();
 
         filter.addAction(
-                ACTION_PROGRESS
+                ScreenCaptureService.ACTION_PROGRESS
         );
 
         filter.addAction(
-                ACTION_RESULT
+                ScreenCaptureService.ACTION_RESULT
         );
 
         if (Build.VERSION.SDK_INT >= 33) {
@@ -1231,74 +227,611 @@ public class FloatingScannerService extends Service {
         }
     }
 
-    // ============================================================
-    // CLEANUP
-    // ============================================================
+    private int dp(float value) {
+
+        return (int)
+                (value *
+                        getResources()
+                                .getDisplayMetrics()
+                                .density +
+                        0.5f);
+    }
+
+    private WindowManager.LayoutParams overlayParams() {
+
+        int type;
+
+        if (Build.VERSION.SDK_INT >= 26) {
+            type =
+                    WindowManager.LayoutParams
+                            .TYPE_APPLICATION_OVERLAY;
+        } else {
+            type =
+                    WindowManager.LayoutParams
+                            .TYPE_PHONE;
+        }
+
+        WindowManager.LayoutParams params =
+                new WindowManager.LayoutParams(
+                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        type,
+                        WindowManager.LayoutParams
+                                .FLAG_NOT_FOCUSABLE |
+                                WindowManager.LayoutParams
+                                .FLAG_LAYOUT_NO_LIMITS,
+                        PixelFormat.TRANSLUCENT
+                );
+
+        params.gravity =
+                Gravity.TOP |
+                        Gravity.START;
+
+        params.x = savedX;
+        params.y = savedY;
+
+        return params;
+    }
+
+    private void createLogo() {
+
+        if (windowManager == null) {
+            return;
+        }
+
+        if (logoView != null) {
+            return;
+        }
+
+        /*
+         * SMALL FLOATING ICON:
+         * Previous size was too large.
+         * 44dp keeps the same logo but makes it compact.
+         */
+        ImageView image =
+                new ImageView(this);
+
+        image.setImageResource(
+                getResources()
+                        .getIdentifier(
+                                "md_jibon_logo",
+                                "drawable",
+                                getPackageName()
+                        )
+        );
+
+        image.setScaleType(
+                ImageView.ScaleType.CENTER_INSIDE
+        );
+
+        int size = dp(44);
+
+        image.setLayoutParams(
+                new android.view.ViewGroup.LayoutParams(
+                        size,
+                        size
+                )
+        );
+
+        logoView = image;
+
+        WindowManager.LayoutParams params =
+                overlayParams();
+
+        image.setOnTouchListener(
+                new View.OnTouchListener() {
+
+                    private int downX;
+                    private int downY;
+                    private int startX;
+                    private int startY;
+                    private long downTime;
+
+                    @Override
+                    public boolean onTouch(
+                            View v,
+                            MotionEvent event
+                    ) {
+
+                        switch (event.getAction()) {
+
+                            case MotionEvent.ACTION_DOWN:
+
+                                downX =
+                                        (int) event.getRawX();
+
+                                downY =
+                                        (int) event.getRawY();
+
+                                startX = params.x;
+                                startY = params.y;
+
+                                downTime =
+                                        System.currentTimeMillis();
+
+                                return true;
+
+                            case MotionEvent.ACTION_MOVE:
+
+                                int dx =
+                                        (int) event.getRawX() -
+                                                downX;
+
+                                int dy =
+                                        (int) event.getRawY() -
+                                                downY;
+
+                                params.x =
+                                        startX + dx;
+
+                                params.y =
+                                        startY + dy;
+
+                                try {
+                                    windowManager.updateViewLayout(
+                                            image,
+                                            params
+                                    );
+                                } catch (Exception ignored) {
+                                }
+
+                                return true;
+
+                            case MotionEvent.ACTION_UP:
+
+                                savedX = params.x;
+                                savedY = params.y;
+
+                                long duration =
+                                        System.currentTimeMillis() -
+                                                downTime;
+
+                                int totalMove =
+                                        Math.abs(
+                                                (int) event.getRawX() -
+                                                        downX
+                                        ) +
+                                                Math.abs(
+                                                        (int) event.getRawY() -
+                                                                downY
+                                                );
+
+                                /*
+                                 * Tap = short press + little movement.
+                                 */
+                                if (duration < 350 &&
+                                        totalMove < dp(12)) {
+
+                                    startScan();
+                                }
+
+                                return true;
+                        }
+
+                        return true;
+                    }
+                }
+        );
+
+        try {
+
+            windowManager.addView(
+                    image,
+                    params
+            );
+
+        } catch (Exception e) {
+
+            logoView = null;
+        }
+    }
+
+    private void startScan() {
+
+        if (!ScreenCaptureService
+                .isCaptureActive()) {
+
+            Toast.makeText(
+                    this,
+                    "আগে SCREEN CAPTURE ON করুন",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        removeView(
+                logoView
+        );
+
+        createScanView();
+
+        Intent scan =
+                new Intent(
+                        this,
+                        ScreenCaptureService.class
+                );
+
+        scan.setAction(
+                ScreenCaptureService.ACTION_SCAN
+        );
+
+        try {
+
+            if (Build.VERSION.SDK_INT >= 26) {
+
+                startForegroundService(
+                        scan
+                );
+
+            } else {
+
+                startService(scan);
+            }
+
+        } catch (Exception e) {
+
+            removeView(scanView);
+            createLogo();
+
+            Toast.makeText(
+                    this,
+                    "Scanner start হয়নি",
+                    Toast.LENGTH_SHORT
+            ).show();
+        }
+    }
+
+    private void createScanView() {
+
+        TextView scan =
+                new TextView(this);
+
+        scan.setText(
+                "SCANNING\n0 / 100"
+        );
+
+        scan.setTextColor(
+                Color.WHITE
+        );
+
+        scan.setTextSize(
+                18
+        );
+
+        scan.setGravity(
+                Gravity.CENTER
+        );
+
+        GradientDrawable bg =
+                new GradientDrawable();
+
+        bg.setColor(
+                Color.rgb(
+                        10,
+                        18,
+                        30
+                )
+        );
+
+        bg.setCornerRadius(
+                dp(18)
+        );
+
+        bg.setStroke(
+                dp(2),
+                Color.rgb(
+                        40,
+                        220,
+                        255
+                )
+        );
+
+        scan.setBackground(bg);
+
+        int width = dp(155);
+        int height = dp(90);
+
+        scanView = scan;
+
+        WindowManager.LayoutParams params =
+                overlayParams();
+
+        params.width = width;
+        params.height = height;
+
+        params.x =
+                Math.max(
+                        0,
+                        savedX - dp(50)
+                );
+
+        params.y =
+                Math.max(
+                        0,
+                        savedY - dp(20)
+                );
+
+        try {
+
+            windowManager.addView(
+                    scan,
+                    params
+            );
+
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void updateProgress(
+            int progress
+    ) {
+
+        if (!(scanView instanceof TextView)) {
+            return;
+        }
+
+        TextView text =
+                (TextView) scanView;
+
+        text.setText(
+                "SCANNING\n" +
+                        Math.max(
+                                0,
+                                Math.min(
+                                        100,
+                                        progress
+                                )
+                        ) +
+                        " / 100"
+        );
+    }
+
+    private void showResult(
+            String signal,
+            int confidence,
+            int rules,
+            int candles,
+            String timeframe
+    ) {
+
+        removeView(scanView);
+
+        if (signal == null) {
+            signal = "NO TRADE";
+        }
+
+        if (!"UP".equals(signal) &&
+                !"DOWN".equals(signal) &&
+                !"NO TRADE".equals(signal)) {
+
+            signal = "NO TRADE";
+        }
+
+        String safeTimeframe =
+                timeframe == null
+                        ? "1 MIN"
+                        : timeframe;
+
+        TextView result =
+                new TextView(this);
+
+        String text;
+
+        if ("UP".equals(signal)) {
+
+            text =
+                    "▲ UP\n" +
+                            "Score: " +
+                            confidence +
+                            "%\n" +
+                            "Rules: " +
+                            rules +
+                            "/100\n" +
+                            "Candles: " +
+                            candles;
+
+        } else if ("DOWN".equals(signal)) {
+
+            text =
+                    "▼ DOWN\n" +
+                            "Score: " +
+                            confidence +
+                            "%\n" +
+                            "Rules: " +
+                            rules +
+                            "/100\n" +
+                            "Candles: " +
+                            candles;
+
+        } else {
+
+            text =
+                    "WAIT\n" +
+                            "NO TRADE\n" +
+                            "Rules: " +
+                            rules +
+                            "/100\n" +
+                            "Candles: " +
+                            candles;
+        }
+
+        result.setText(text);
+
+        result.setTextSize(17);
+
+        result.setGravity(
+                Gravity.CENTER
+        );
+
+        if ("UP".equals(signal)) {
+
+            result.setTextColor(
+                    Color.rgb(
+                            30,
+                            235,
+                            135
+                    )
+            );
+
+        } else if ("DOWN".equals(signal)) {
+
+            result.setTextColor(
+                    Color.rgb(
+                            255,
+                            70,
+                            85
+                    )
+            );
+
+        } else {
+
+            result.setTextColor(
+                    Color.WHITE
+            );
+        }
+
+        GradientDrawable bg =
+                new GradientDrawable();
+
+        bg.setColor(
+                Color.rgb(
+                        8,
+                        12,
+                        20
+                )
+        );
+
+        bg.setCornerRadius(
+                dp(18)
+        );
+
+        bg.setStroke(
+                dp(2),
+                Color.rgb(
+                        80,
+                        80,
+                        90
+                )
+        );
+
+        result.setBackground(bg);
+
+        result.setPadding(
+                dp(10),
+                dp(8),
+                dp(10),
+                dp(8)
+        );
+
+        resultView = result;
+
+        WindowManager.LayoutParams params =
+                overlayParams();
+
+        params.width = dp(180);
+        params.height = dp(130);
+
+        params.x =
+                Math.max(
+                        0,
+                        savedX - dp(60)
+                );
+
+        params.y =
+                Math.max(
+                        0,
+                        savedY - dp(35)
+                );
+
+        try {
+
+            windowManager.addView(
+                    result,
+                    params
+            );
+
+        } catch (Exception ignored) {
+        }
+
+        /*
+         * Result remains visible for 4 seconds,
+         * then floating logo comes back.
+         */
+        mainHandlerPostDelayed(
+                () -> {
+
+                    removeView(resultView);
+                    resultView = null;
+
+                    createLogo();
+
+                },
+                4000
+        );
+    }
+
+    private void mainHandlerPostDelayed(
+            Runnable runnable,
+            long delay
+    ) {
+
+        new android.os.Handler(
+                android.os.Looper.getMainLooper()
+        ).postDelayed(
+                runnable,
+                delay
+        );
+    }
+
+    private void removeView(
+            View view
+    ) {
+
+        if (view == null ||
+                windowManager == null) {
+            return;
+        }
+
+        try {
+
+            windowManager.removeView(view);
+
+        } catch (Exception ignored) {
+        }
+    }
 
     @Override
     public void onDestroy() {
 
         running = false;
-        scanning = false;
-
-        handler.removeCallbacksAndMessages(
-                null
-        );
-
-        removeResult();
-        removeScanView();
-        removeLogo();
 
         if (receiver != null) {
 
             try {
-
                 unregisterReceiver(
                         receiver
                 );
-
             } catch (Exception ignored) {
             }
 
             receiver = null;
         }
 
-        if (Build.VERSION.SDK_INT >= 24) {
+        removeView(logoView);
+        removeView(scanView);
+        removeView(resultView);
 
-            stopForeground(
-                    STOP_FOREGROUND_REMOVE
-            );
-
-        } else {
-
-            stopForeground(true);
-        }
+        logoView = null;
+        scanView = null;
+        resultView = null;
 
         super.onDestroy();
     }
 
-    // ============================================================
-    // BIND
-    // ============================================================
-
+    @Nullable
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
-
-    // ============================================================
-    // DP
-    // ============================================================
-
-    private int dp(float value) {
-
-        return (int)
-                (
-                        value *
-                                getResources()
-                                        .getDisplayMetrics()
-                                        .density
-                                + 0.5f
-                );
     }
 }
