@@ -474,6 +474,18 @@ public class ScreenCaptureService extends Service {
                 frame.recycle();
             }
 
+            /*
+             * IMPORTANT:
+             * Lambda expressions require captured local
+             * variables to be final or effectively final.
+             *
+             * result is assigned in both try and catch,
+             * so create a final copy before using it
+             * inside the delayed lambda.
+             */
+            final Analyzer.Result finalResult =
+                    result;
+
             sendProgress(20);
 
             mainHandler.postDelayed(
@@ -496,7 +508,7 @@ public class ScreenCaptureService extends Service {
 
                         sendProgress(100);
 
-                        finishScan(result);
+                        finishScan(finalResult);
 
                     },
                     520
