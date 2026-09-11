@@ -1,5 +1,8 @@
 package com.mdjibon.scanner;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -24,12 +27,17 @@ import android.widget.TextView;
 
 public class FloatingScannerService extends Service {
 
+    private static final String CHANNEL_ID =
+            "md_jibon_floating_scanner";
+
+    private static final int NOTIFICATION_ID =
+            9902;
+
     private static boolean running = false;
 
     private WindowManager windowManager;
 
     private LogoButton logoButton;
-
     private WindowManager.LayoutParams logoParams;
 
     private View scanView;
@@ -70,6 +78,17 @@ public class FloatingScannerService extends Service {
 
         running = true;
 
+        startFloatingForeground();
+
+        if (windowManager == null) {
+
+            windowManager =
+                    (WindowManager)
+                            getSystemService(
+                                    WINDOW_SERVICE
+                            );
+        }
+
         if (logoButton == null) {
             createLogo();
         }
@@ -87,26 +106,151 @@ public class FloatingScannerService extends Service {
         return START_STICKY;
     }
 
+    private void startFloatingForeground() {
+
+        createNotificationChannel();
+
+        Notification notification;
+
+        if (Build.VERSION.SDK_INT >= 26) {
+
+            notification =
+                    new Notification.Builder(
+                            this,
+                            CHANNEL_ID
+                    )
+                            .setContentTitle(
+                                    "MD JIBON Screen Scanner"
+                            )
+                            .setContentText(
+                                    "Floating Scanner is active"
+                            )
+                            .setSmallIcon(
+                                    android.R.drawable.ic_menu_view
+                            )
+                            .setOngoing(true)
+                            .build();
+
+        } else {
+
+            notification =
+                    new Notification.Builder(this)
+                            .setContentTitle(
+                                    "MD JIBON Screen Scanner"
+                            )
+                            .setContentText(
+                                    "Floating Scanner is active"
+                            )
+                            .setSmallIcon(
+                                    android.R.drawable.ic_menu_view
+                            )
+                            .setOngoing(true)
+                            .build();
+        }
+
+        try {
+
+            if (Build.VERSION.SDK_INT >= 34) {
+
+                startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        android.content.pm.ServiceInfo
+                                .FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                );
+
+            } else if (Build.VERSION.SDK_INT >= 29) {
+
+                startForeground(
+                        NOTIFICATION_ID,
+                        notification
+                );
+
+            } else {
+
+                startForeground(
+                        NOTIFICATION_ID,
+                        notification
+                );
+            }
+
+        } catch (Exception e) {
+
+            running = false;
+            stopSelf();
+        }
+    }
+
+    private void createNotificationChannel() {
+
+        if (Build.VERSION.SDK_INT < 26) {
+            return;
+        }
+
+        NotificationManager manager =
+                (NotificationManager)
+                        getSystemService(
+                                NOTIFICATION_SERVICE
+                        );
+
+        if (manager == null) {
+            return;
+        }
+
+        NotificationChannel channel =
+                new NotificationChannel(
+                        CHANNEL_ID,
+                        "MD JIBON Floating Scanner",
+                        NotificationManager.IMPORTANCE_LOW
+                );
+
+        channel.setDescription(
+                "Floating scanner service"
+        );
+
+        manager.createNotificationChannel(
+                channel
+        );
+    }
+
     private void createLogo() {
 
-        windowManager =
-                (WindowManager)
-                        getSystemService(
-                                WINDOW_SERVICE
-                        );
+        if (windowManager == null) {
+
+            windowManager =
+                    (WindowManager)
+                            getSystemService(
+                                    WINDOW_SERVICE
+                            );
+        }
 
         logoButton =
                 new LogoButton(this);
+
+        int type;
+
+        if (Build.VERSION.SDK_INT >= 26) {
+
+            type =
+                    WindowManager.LayoutParams
+                            .TYPE_APPLICATION_OVERLAY;
+
+        } else {
+
+            type =
+                    WindowManager.LayoutParams
+                            .TYPE_PHONE;
+        }
 
         logoParams =
                 new WindowManager.LayoutParams(
                         dp(58),
                         dp(58),
-                        Build.VERSION.SDK_INT >= 26
-                                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                                : WindowManager.LayoutParams.TYPE_PHONE,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                        android.graphics.PixelFormat.TRANSLUCENT
+                        type,
+                        WindowManager.LayoutParams
+                                .FLAG_NOT_FOCUSABLE,
+                        android.graphics.PixelFormat
+                                .TRANSLUCENT
                 );
 
         SharedPreferences prefs =
@@ -117,7 +261,7 @@ public class FloatingScannerService extends Service {
 
         logoParams.gravity =
                 Gravity.TOP |
-                Gravity.LEFT;
+                        Gravity.LEFT;
 
         logoParams.x =
                 prefs.getInt(
@@ -197,7 +341,13 @@ public class FloatingScannerService extends Service {
                                                         logoParams
                                                 );
 
-                                    } catch (Exception ignored) {
+                                    } catch (Exception e) {
+
+                                        android.util.Log.e(
+                                                "MDJIBON",
+                                                "Logo update failed",
+                                                e
+                                        );
                                     }
                                 }
 
@@ -240,11 +390,21 @@ public class FloatingScannerService extends Service {
 
         } catch (Exception e) {
 
+            android.util.Log.e(
+                    "MDJIBON",
+                    "Floating logo addView failed",
+                    e
+            );
+
             logoButton = null;
         }
     }
 
     private void clampLogo() {
+
+        if (logoParams == null) {
+            return;
+        }
 
         int width =
                 getResources()
@@ -331,6 +491,7 @@ public class FloatingScannerService extends Service {
             scanVisible = false;
 
             if (logoButton != null) {
+
                 logoButton.setVisibility(
                         View.VISIBLE
                 );
@@ -347,16 +508,24 @@ public class FloatingScannerService extends Service {
 
         scanView = view;
 
+        int type =
+                Build.VERSION.SDK_INT >= 26
+                        ? WindowManager.LayoutParams
+                        .TYPE_APPLICATION_OVERLAY
+                        : WindowManager.LayoutParams
+                        .TYPE_PHONE;
+
         scanParams =
                 new WindowManager.LayoutParams(
                         dp(290),
                         dp(340),
-                        Build.VERSION.SDK_INT >= 26
-                                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                                : WindowManager.LayoutParams.TYPE_PHONE,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-                                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                        android.graphics.PixelFormat.TRANSLUCENT
+                        type,
+                        WindowManager.LayoutParams
+                                .FLAG_NOT_FOCUSABLE |
+                                WindowManager.LayoutParams
+                                        .FLAG_NOT_TOUCHABLE,
+                        android.graphics.PixelFormat
+                                .TRANSLUCENT
                 );
 
         scanParams.gravity =
@@ -371,10 +540,17 @@ public class FloatingScannerService extends Service {
 
         } catch (Exception e) {
 
+            android.util.Log.e(
+                    "MDJIBON",
+                    "Scan view failed",
+                    e
+            );
+
             scanView = null;
             scanVisible = false;
 
             if (logoButton != null) {
+
                 logoButton.setVisibility(
                         View.VISIBLE
                 );
@@ -426,7 +602,11 @@ public class FloatingScannerService extends Service {
                 new GradientDrawable();
 
         background.setColor(
-                Color.rgb(5, 18, 35)
+                Color.rgb(
+                        5,
+                        18,
+                        35
+                )
         );
 
         background.setCornerRadius(
@@ -437,27 +617,37 @@ public class FloatingScannerService extends Service {
 
             background.setStroke(
                     dp(2),
-                    Color.rgb(25, 235, 135)
+                    Color.rgb(
+                            25,
+                            235,
+                            135
+                    )
             );
 
         } else if ("DOWN".equals(signal)) {
 
             background.setStroke(
                     dp(2),
-                    Color.rgb(255, 65, 80)
+                    Color.rgb(
+                            255,
+                            65,
+                            80
+                    )
             );
 
         } else {
 
             background.setStroke(
                     dp(2),
-                    Color.rgb(30, 160, 255)
+                    Color.rgb(
+                            30,
+                            160,
+                            255
+                    )
             );
         }
 
-        card.setBackground(
-                background
-        );
+        card.setBackground(background);
 
         ImageView logo =
                 new ImageView(this);
@@ -496,13 +686,21 @@ public class FloatingScannerService extends Service {
         if ("UP".equals(signal)) {
 
             signalText.setTextColor(
-                    Color.rgb(30, 235, 135)
+                    Color.rgb(
+                            30,
+                            235,
+                            135
+                    )
             );
 
         } else if ("DOWN".equals(signal)) {
 
             signalText.setTextColor(
-                    Color.rgb(255, 65, 80)
+                    Color.rgb(
+                            255,
+                            65,
+                            80
+                    )
             );
 
         } else {
@@ -571,15 +769,23 @@ public class FloatingScannerService extends Service {
 
         resultView = card;
 
+        int type =
+                Build.VERSION.SDK_INT >= 26
+                        ? WindowManager.LayoutParams
+                        .TYPE_APPLICATION_OVERLAY
+                        : WindowManager.LayoutParams
+                        .TYPE_PHONE;
+
         resultParams =
                 new WindowManager.LayoutParams(
                         dp(190),
-                        WindowManager.LayoutParams.WRAP_CONTENT,
-                        Build.VERSION.SDK_INT >= 26
-                                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                                : WindowManager.LayoutParams.TYPE_PHONE,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                        android.graphics.PixelFormat.TRANSLUCENT
+                        WindowManager.LayoutParams
+                                .WRAP_CONTENT,
+                        type,
+                        WindowManager.LayoutParams
+                                .FLAG_NOT_FOCUSABLE,
+                        android.graphics.PixelFormat
+                                .TRANSLUCENT
                 );
 
         resultParams.gravity =
@@ -611,6 +817,12 @@ public class FloatingScannerService extends Service {
             );
 
         } catch (Exception e) {
+
+            android.util.Log.e(
+                    "MDJIBON",
+                    "Result card failed",
+                    e
+            );
 
             resultView = null;
         }
@@ -709,6 +921,7 @@ public class FloatingScannerService extends Service {
 
             if (bitmap == null ||
                     bitmap.isRecycled()) {
+
                 return;
             }
 
@@ -756,9 +969,7 @@ public class FloatingScannerService extends Service {
             startTime =
                     System.currentTimeMillis();
 
-            handler.post(
-                    animation
-            );
+            handler.post(animation);
         }
 
         private final Runnable animation =
@@ -822,6 +1033,7 @@ public class FloatingScannerService extends Service {
 
             if (bitmap == null ||
                     bitmap.isRecycled()) {
+
                 return;
             }
 
@@ -868,11 +1080,9 @@ public class FloatingScannerService extends Service {
 
             float lineY =
                     top +
-                            (
-                                    size *
-                                            progress /
-                                            100f
-                            );
+                            size *
+                                    progress /
+                                    100f;
 
             canvas.drawLine(
                     left,
@@ -1075,20 +1285,7 @@ public class FloatingScannerService extends Service {
         }
 
         removeScanView();
-
-        if (resultView != null) {
-
-            try {
-
-                windowManager.removeView(
-                        resultView
-                );
-
-            } catch (Exception ignored) {
-            }
-
-            resultView = null;
-        }
+        dismissResult();
 
         if (logoButton != null) {
 
@@ -1102,6 +1299,19 @@ public class FloatingScannerService extends Service {
             }
 
             logoButton = null;
+        }
+
+        try {
+
+            if (Build.VERSION.SDK_INT >= 24) {
+                stopForeground(
+                        STOP_FOREGROUND_REMOVE
+                );
+            } else {
+                stopForeground(true);
+            }
+
+        } catch (Exception ignored) {
         }
 
         super.onDestroy();
