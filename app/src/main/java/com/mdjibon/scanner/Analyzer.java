@@ -1,37 +1,58 @@
 package com.mdjibon.scanner;
 
 import android.graphics.Bitmap;
+import android.graphics.Color;
+
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 /**
- * Deterministic chart-image analyzer.
+ * MD JIBON 99% Screen Scanner
+ *
+ * Deterministic screenshot-based technical/price-action analyzer.
  *
  * IMPORTANT:
- * This analyzer does not use Math.random().
- * The 100 checks are calculated from the captured chart image.
+ * This analyzer does NOT use broker API/OHLC data.
+ * It reconstructs approximate candles from the visible chart pixels
+ * and evaluates 100 deterministic trading rules.
  *
- * Because a screenshot does not contain the broker's real OHLC feed,
- * candles are reconstructed approximately from the visible chart pixels.
+ * No Math.random() is used.
  */
-public class Analyzer {
+public final class Analyzer {
 
-    public static class Result {
+    private Analyzer() {
+    }
+
+    // ============================================================
+    // RESULT
+    // ============================================================
+
+    public static final class Result {
+
         public String signal = "NO TRADE";
-        public int confidence = 0;
-        public int quality = 0;
+        public double confidence = 0.0;
+        public double quality = 0.0;
+
         public int bullish = 0;
         public int bearish = 0;
         public int neutral = 0;
+
         public int detectedCandles = 0;
         public int evaluatedRules = 0;
-        public String timeframe = "1 MIN";
+
+        public String timeframe = "SCREEN";
         public String candleSize = "UNKNOWN";
-        public List<String> checks = new ArrayList<>();
+
+        public final List<String> checks = new ArrayList<>();
     }
 
-    private static class Candle {
+    // ============================================================
+    // CANDLE
+    // ============================================================
+
+    private static final class Candle {
+
         double open;
         double high;
         double low;
@@ -49,7 +70,15 @@ public class Analyzer {
         }
 
         double range() {
-            return Math.max(0.0001, high - low);
+            return Math.max(0.000001, high - low);
+        }
+
+        double upperWick() {
+            return Math.max(0.0, high - Math.max(open, close));
+        }
+
+        double lowerWick() {
+            return Math.max(0.0, Math.min(open, close) - low);
         }
 
         boolean bullish() {
@@ -59,74 +88,91 @@ public class Analyzer {
         boolean bearish() {
             return close < open;
         }
+
+        boolean doji() {
+            return body() <= range() * 0.12;
+        }
+
+        double bodyRatio() {
+            return body() / range();
+        }
+
+        double closeLocation() {
+            return (close - low) / range();
+        }
     }
 
-    private static class Score {
+    // ============================================================
+    // SCORE
+    // ============================================================
+
+    private static final class Score {
         int up;
         int down;
         int neutral;
     }
 
+    // ============================================================
+    // PUBLIC ENTRY
+    // ============================================================
+
     public static Result analyze(Bitmap bitmap) {
+
         Result result = new Result();
 
-        if (bitmap == null ||
-                bitmap.isRecycled() ||
-                bitmap.getWidth() < 200 ||
-                bitmap.getHeight() < 150) {
+        if (bitmap == null || bitmap.isRecycled()) {
             result.signal = "NO TRADE";
             result.quality = 0;
-            result.evaluatedRules = 0;
             return result;
         }
 
         List<Candle> candles = extractCandles(bitmap);
 
         result.detectedCandles = candles.size();
-        result.quality = calculateImageQuality(bitmap, candles);
 
         if (candles.size() < 10) {
             result.signal = "NO TRADE";
-            result.confidence = 0;
+            result.quality = 0;
             result.evaluatedRules = 0;
             return result;
         }
 
-        double[] close = closes(candles);
-        double[] open = opens(candles);
-        double[] high = highs(candles);
-        double[] low = lows(candles);
+        result.quality = calculateChartQuality(bitmap, candles);
+
+        if (result.quality < 20.0) {
+            result.signal = "NO TRADE";
+            result.evaluatedRules = 0;
+            return result;
+        }
+
+        Score score = new Score();
 
         /*
-         * Exactly 100 checks.
-         * Each check is evaluated from the reconstructed chart data.
+         * EXACTLY 100 RULES
          */
         for (int rule = 1; rule <= 100; rule++) {
-            Score s = evaluateRule(
-                    rule,
-                    candles,
-                    open,
-                    high,
-                    low,
-                    close
-            );
 
-            result.bullish += s.up;
-            result.bearish += s.down;
-            result.neutral += s.neutral;
-            result.evaluatedRules++;
+            int vote = evaluateRule(rule, candles);
 
-            if (s.up > 0) {
-                result.checks.add("Rule " + rule + ": UP");
-            } else if (s.down > 0) {
-                result.checks.add("Rule " + rule + ": DOWN");
+            if (vote > 0) {
+                score.up++;
+                result.bullish++;
+                result.checks.add("R" + rule + ": UP");
+            } else if (vote < 0) {
+                score.down++;
+                result.bearish++;
+                result.checks.add("R" + rule + ": DOWN");
             } else {
-                result.checks.add("Rule " + rule + ": NEUTRAL");
+                score.neutral++;
+                result.neutral++;
+                result.checks.add("R" + rule + ": NEUTRAL");
             }
+
+            result.evaluatedRules++;
         }
 
         /*
-         * Do not claim 100 unless the loop actually evaluated 100.
+         * Never return a signal if all 100 rules were not evaluated.
          */
         if (result.evaluatedRules != 100) {
             result.signal = "NO TRADE";
@@ -134,1377 +180,2155 @@ public class Analyzer {
             return result;
         }
 
-        int directional = result.bullish + result.bearish;
-        int difference = Math.abs(
-                result.bullish - result.bearish
-        );
+        /*
+         * Confidence is based on directional agreement.
+         * This is NOT a guaranteed win percentage.
+         */
+        int directional = score.up + score.down;
 
-        if (directional < 12) {
+        if (directional <= 0) {
             result.signal = "NO TRADE";
             result.confidence = 0;
             return result;
         }
 
-        int confidence = (difference * 100) /
-                Math.max(1, directional);
+        int difference = Math.abs(score.up - score.down);
+
+        result.confidence =
+                (difference * 100.0) / directional;
 
         /*
-         * A screenshot-based signal must be conservative.
+         * Require a meaningful majority.
+         * Otherwise psychology is considered mixed.
          */
-        if (confidence < 18) {
-            result.signal = "NO TRADE";
-            result.confidence = confidence;
-        } else if (result.bullish > result.bearish) {
+        if (score.up >= 60 && score.up > score.down + 8) {
             result.signal = "UP";
-            result.confidence = Math.min(100, confidence);
-        } else if (result.bearish > result.bullish) {
+        } else if (score.down >= 60 && score.down > score.up + 8) {
             result.signal = "DOWN";
-            result.confidence = Math.min(100, confidence);
         } else {
             result.signal = "NO TRADE";
-            result.confidence = 0;
         }
+
+        result.timeframe = "SCREEN";
+        result.candleSize = candles.size() + " candles";
 
         return result;
     }
 
-    private static Score evaluateRule(
-            int rule,
-            List<Candle> c,
-            double[] o,
-            double[] h,
-            double[] l,
-            double[] close
-    ) {
-        Score s = new Score();
+    // ============================================================
+    // 100 REAL DETERMINISTIC RULES
+    // ============================================================
+
+    private static int evaluateRule(int rule, List<Candle> c) {
+
+        Candle last = lastCandle(c);
+        Candle prev = c.get(c.size() - 2);
 
         switch (rule) {
 
-            // -------------------------------------------------
-            // 1-10: PRICE / MOVING AVERAGES
-            // -------------------------------------------------
+            // ----------------------------------------------------
+            // 1 - 10 : BASIC PRICE ACTION / CANDLE PSYCHOLOGY
+            // ----------------------------------------------------
+
             case 1:
-                vote(s, close[last(close)] > sma(close, 3));
-                break;
+                return direction(last);
+
             case 2:
-                vote(s, close[last(close)] > sma(close, 5));
-                break;
+                return bodyDominance(c);
+
             case 3:
-                vote(s, close[last(close)] > sma(close, 8));
-                break;
+                return closeNearHighLow(last);
+
             case 4:
-                vote(s, close[last(close)] > sma(close, 13));
-                break;
+                return wickPressure(last);
+
             case 5:
-                vote(s, close[last(close)] > sma(close, 21));
-                break;
+                return consecutiveDirection(c, 3);
+
             case 6:
-                vote(s, sma(close, 3) > sma(close, 5));
-                break;
+                return consecutiveDirection(c, 5);
+
             case 7:
-                vote(s, sma(close, 5) > sma(close, 8));
-                break;
+                return recentMomentum(c, 3);
+
             case 8:
-                vote(s, sma(close, 8) > sma(close, 13));
-                break;
+                return recentMomentum(c, 5);
+
             case 9:
-                vote(s, ema(close, 9) > ema(close, 21));
-                break;
+                return candleContinuation(last, prev);
+
             case 10:
-                vote(s, ema(close, 21) > ema(close, 34));
-                break;
+                return candleReversal(last, prev);
 
-            // -------------------------------------------------
-            // 11-20: EMA / TREND
-            // -------------------------------------------------
+            // ----------------------------------------------------
+            // 11 - 20 : WICK / REJECTION PSYCHOLOGY
+            // ----------------------------------------------------
+
             case 11:
-                vote(s, ema(close, 5) > ema(close, 9));
-                break;
+                return bullishRejection(last);
+
             case 12:
-                vote(s, ema(close, 9) > ema(close, 13));
-                break;
+                return bearishRejection(last);
+
             case 13:
-                vote(s, ema(close, 13) > ema(close, 21));
-                break;
+                return lowerWickPressure(c);
+
             case 14:
-                vote(s, ema(close, 21) > sma(close, 21));
-                break;
+                return upperWickPressure(c);
+
             case 15:
-                vote(s, slope(close, 5) > 0);
-                break;
+                return strongBullClose(last);
+
             case 16:
-                vote(s, slope(close, 8) > 0);
-                break;
+                return strongBearClose(last);
+
             case 17:
-                vote(s, slope(close, 13) > 0);
-                break;
+                return wickAgainstTrend(c);
+
             case 18:
-                vote(s, slope(close, 21) > 0);
-                break;
+                return wickContinuation(c);
+
             case 19:
-                vote(s, momentum(close, 3) > 0);
-                break;
+                return rejectionAfterImpulse(c);
+
             case 20:
-                vote(s, momentum(close, 5) > 0);
-                break;
+                return exhaustionWick(c);
 
-            // -------------------------------------------------
-            // 21-30: MOMENTUM / ROC / RSI
-            // -------------------------------------------------
+            // ----------------------------------------------------
+            // 21 - 30 : TREND
+            // ----------------------------------------------------
+
             case 21:
-                vote(s, momentum(close, 8) > 0);
-                break;
+                return slopeRule(c, 5);
+
             case 22:
-                vote(s, momentum(close, 13) > 0);
-                break;
+                return slopeRule(c, 8);
+
             case 23:
-                vote(s, roc(close, 3) > 0);
-                break;
+                return slopeRule(c, 12);
+
             case 24:
-                vote(s, roc(close, 5) > 0);
-                break;
+                return emaDirection(c, 5);
+
             case 25:
-                vote(s, roc(close, 8) > 0);
-                break;
+                return emaDirection(c, 9);
+
             case 26:
-                voteRsi(s, rsi(close, 7));
-                break;
+                return emaDirection(c, 20);
+
             case 27:
-                voteRsi(s, rsi(close, 14));
-                break;
+                return priceVsSma(c, 5);
+
             case 28:
-                voteRsi(s, rsi(close, 21));
-                break;
+                return priceVsSma(c, 10);
+
             case 29:
-                voteRsiMomentum(s, rsi(close, 14), rsiPrevious(close, 14));
-                break;
+                return priceVsSma(c, 20);
+
             case 30:
-                voteRsiZone(s, rsi(close, 14));
-                break;
+                return trendAlignment(c);
 
-            // -------------------------------------------------
-            // 31-40: MACD / STOCHASTIC
-            // -------------------------------------------------
+            // ----------------------------------------------------
+            // 31 - 40 : MOMENTUM
+            // ----------------------------------------------------
+
             case 31:
-                vote(s, macd(close, 12, 26, 9) > 0);
-                break;
+                return momentumRule(c, 3);
+
             case 32:
-                vote(s, macd(close, 5, 13, 5) > 0);
-                break;
+                return momentumRule(c, 5);
+
             case 33:
-                vote(s, macd(close, 8, 21, 5) > 0);
-                break;
+                return momentumRule(c, 8);
+
             case 34:
-                vote(s, macdMomentum(close));
-                break;
+                return rocRule(c, 3);
+
             case 35:
-                voteStochastic(s, stochastic(close, 9));
-                break;
+                return rocRule(c, 5);
+
             case 36:
-                voteStochastic(s, stochastic(close, 14));
-                break;
+                return rocRule(c, 8);
+
             case 37:
-                voteStochastic(s, stochastic(close, 21));
-                break;
+                return accelerationRule(c);
+
             case 38:
-                voteStochasticMomentum(s, close);
-                break;
+                return momentumDivergence(c);
+
             case 39:
-                vote(s, stochastic(close, 14) > 50);
-                break;
+                return impulseStrength(c);
+
             case 40:
-                vote(s, stochastic(close, 14) < 50);
-                break;
+                return momentumExhaustion(c);
 
-            // -------------------------------------------------
-            // 41-50: BOLLINGER / VOLATILITY
-            // -------------------------------------------------
+            // ----------------------------------------------------
+            // 41 - 50 : RSI / OSCILLATOR
+            // ----------------------------------------------------
+
             case 41:
-                vote(s, close[last(close)] > bbMiddle(close, 20));
-                break;
+                return rsiRule(c, 7);
+
             case 42:
-                vote(s, close[last(close)] < bbMiddle(close, 20));
-                break;
+                return rsiRule(c, 14);
+
             case 43:
-                vote(s, close[last(close)] > bbUpper(close, 20, 2.0));
-                break;
+                return rsiOversoldReversal(c);
+
             case 44:
-                vote(s, close[last(close)] < bbLower(close, 20, 2.0));
-                break;
+                return rsiOverboughtReversal(c);
+
             case 45:
-                voteVolatility(s, volatility(close, 10));
-                break;
+                return rsiTrendConfirmation(c);
+
             case 46:
-                voteVolatility(s, volatility(close, 20));
-                break;
+                return stochasticRule(c);
+
             case 47:
-                vote(s, volatility(close, 10) > volatilityPrevious(close, 10));
-                break;
+                return stochasticReversal(c);
+
             case 48:
-                vote(s, averageBody(c) > averageBodyPrevious(c));
-                break;
+                return oscillatorAgreement(c);
+
             case 49:
-                vote(s, range(c.get(c.size() - 1)) >
-                        averageRange(c, 14));
-                break;
+                return oscillatorMomentum(c);
+
             case 50:
-                vote(s, range(c.get(c.size() - 1)) <
-                        averageRange(c, 14) * 0.75);
-                break;
+                return oscillatorExhaustion(c);
 
-            // -------------------------------------------------
-            // 51-60: CANDLE DIRECTION / BODY
-            // -------------------------------------------------
+            // ----------------------------------------------------
+            // 51 - 60 : MACD / MOVING AVERAGE
+            // ----------------------------------------------------
+
             case 51:
-                vote(s, lastCandle(c).bullish());
-                break;
+                return macdDirection(c);
+
             case 52:
-                vote(s, lastCandle(c).bearish());
-                break;
+                return macdMomentum(c);
+
             case 53:
-                vote(s, consecutiveBullish(c, 2));
-                break;
+                return macdCross(c);
+
             case 54:
-                vote(s, consecutiveBearish(c, 2));
-                break;
+                return macdHistogram(c);
+
             case 55:
-                vote(s, consecutiveBullish(c, 3));
-                break;
+                return emaCross(c, 5, 9);
+
             case 56:
-                vote(s, consecutiveBearish(c, 3));
-                break;
+                return emaCross(c, 9, 20);
+
             case 57:
-                vote(s, bodyRatio(lastCandle(c)) > 0.65);
-                break;
+                return emaCross(c, 20, 50);
+
             case 58:
-                vote(s, bodyRatio(lastCandle(c)) < 0.30);
-                break;
+                return movingAverageStack(c);
+
             case 59:
-                vote(s, close[last(close)] >
-                        close[Math.max(0, close.length - 2)]);
-                break;
+                return movingAverageSlope(c);
+
             case 60:
-                vote(s, close[last(close)] <
-                        close[Math.max(0, close.length - 2)]);
-                break;
+                return movingAverageCompression(c);
 
-            // -------------------------------------------------
-            // 61-70: WICK / REVERSAL PATTERNS
-            // -------------------------------------------------
+            // ----------------------------------------------------
+            // 61 - 70 : SUPPORT / RESISTANCE / STRUCTURE
+            // ----------------------------------------------------
+
             case 61:
-                vote(s, lowerWick(c) > upperWick(c) * 1.5);
-                break;
+                return supportBounce(c);
+
             case 62:
-                vote(s, upperWick(c) > lowerWick(c) * 1.5);
-                break;
+                return resistanceReject(c);
+
             case 63:
-                vote(s, lowerWick(c) > lastCandle(c).body() * 2);
-                break;
+                return higherHighs(c);
+
             case 64:
-                vote(s, upperWick(c) > lastCandle(c).body() * 2);
-                break;
+                return lowerLows(c);
+
             case 65:
-                vote(s, bullishEngulfing(c));
-                break;
+                return higherLows(c);
+
             case 66:
-                vote(s, bearishEngulfing(c));
-                break;
+                return lowerHighs(c);
+
             case 67:
-                vote(s, hammer(c));
-                break;
+                return structureBreakUp(c);
+
             case 68:
-                vote(s, shootingStar(c));
-                break;
+                return structureBreakDown(c);
+
             case 69:
-                vote(s, doji(c));
-                break;
+                return rangePosition(c);
+
             case 70:
-                vote(s, insideBarBreak(c));
-                break;
+                return structureStrength(c);
 
-            // -------------------------------------------------
-            // 71-80: MARKET STRUCTURE
-            // -------------------------------------------------
+            // ----------------------------------------------------
+            // 71 - 80 : BOLLINGER / VOLATILITY / BREAKOUT
+            // ----------------------------------------------------
+
             case 71:
-                vote(s, higherHigh(c));
-                break;
+                return bollingerPosition(c);
+
             case 72:
-                vote(s, lowerHigh(c));
-                break;
+                return bollingerBreakout(c);
+
             case 73:
-                vote(s, higherLow(c));
-                break;
+                return bollingerMeanReversion(c);
+
             case 74:
-                vote(s, lowerLow(c));
-                break;
+                return volatilityExpansion(c);
+
             case 75:
-                vote(s, close[last(close)] > highest(close, 10, 1));
-                break;
+                return volatilityContraction(c);
+
             case 76:
-                vote(s, close[last(close)] < lowest(close, 10, 1));
-                break;
+                return breakoutUp(c);
+
             case 77:
-                vote(s, close[last(close)] > highest(close, 20, 1));
-                break;
+                return breakoutDown(c);
+
             case 78:
-                vote(s, close[last(close)] < lowest(close, 20, 1));
-                break;
+                return falseBreakout(c);
+
             case 79:
-                vote(s, trendStrength(close, 10) > 0);
-                break;
+                return breakoutRetest(c);
+
             case 80:
-                vote(s, trendStrength(close, 10) < 0);
-                break;
+                return rangeBreakPressure(c);
 
-            // -------------------------------------------------
-            // 81-90: SUPPORT / RESISTANCE / ATR
-            // -------------------------------------------------
+            // ----------------------------------------------------
+            // 81 - 90 : ATR / PRESSURE / EXHAUSTION
+            // ----------------------------------------------------
+
             case 81:
-                vote(s, close[last(close)] >
-                        lowest(close, 20, 0));
-                break;
+                return trueRangeDirection(c);
+
             case 82:
-                vote(s, close[last(close)] <
-                        highest(close, 20, 0));
-                break;
+                return atrExpansion(c);
+
             case 83:
-                vote(s, close[last(close)] >
-                        averageRange(c, 14) + sma(close, 14));
-                break;
+                return atrContraction(c);
+
             case 84:
-                vote(s, close[last(close)] <
-                        sma(close, 14) - averageRange(c, 14));
-                break;
+                return candleRangePressure(c);
+
             case 85:
-                vote(s, atr(c, 14) > atrPrevious(c, 14));
-                break;
+                return bodyRangePressure(c);
+
             case 86:
-                vote(s, atr(c, 14) < atrPrevious(c, 14));
-                break;
+                return volatilityTrend(c);
+
             case 87:
-                vote(s, trueRange(c, last(c)) >
-                        averageTrueRange(c, 14));
-                break;
+                return trueRange(c, lastCandle(c)) >
+                        averageTrueRange(c, 14) ? 1 : -1;
+
             case 88:
-                vote(s, trueRange(c, last(c)) <
-                        averageTrueRange(c, 14));
-                break;
+                return trueRange(c, lastCandle(c)) <
+                        averageTrueRange(c, 14) ? -1 : 1;
+
             case 89:
-                vote(s, close[last(close)] >
-                        sma(close, 34));
-                break;
+                return exhaustionAfterRun(c);
+
             case 90:
-                vote(s, close[last(close)] <
-                        sma(close, 34));
-                break;
+                return reversalAfterExtreme(c);
 
-            // -------------------------------------------------
-            // 91-100: FINAL CONFLUENCE
-            // -------------------------------------------------
+            // ----------------------------------------------------
+            // 91 - 100 : ADVANCED MARKET PSYCHOLOGY
+            // ----------------------------------------------------
+
             case 91:
-                vote(s, ema(close, 9) > ema(close, 21) &&
-                        rsi(close, 14) > 50);
-                break;
+                return pressureBalance(c);
+
             case 92:
-                vote(s, ema(close, 9) < ema(close, 21) &&
-                        rsi(close, 14) < 50);
-                break;
+                return buyerSellerDominance(c);
+
             case 93:
-                vote(s, macd(close, 12, 26, 9) > 0 &&
-                        stochastic(close, 14) > 50);
-                break;
+                return candleSequencePsychology(c);
+
             case 94:
-                vote(s, macd(close, 12, 26, 9) < 0 &&
-                        stochastic(close, 14) < 50);
-                break;
+                return impulseCorrectionBalance(c);
+
             case 95:
-                vote(s, slope(close, 5) > 0 &&
-                        slope(close, 13) > 0);
-                break;
+                return trendExhaustion(c);
+
             case 96:
-                vote(s, slope(close, 5) < 0 &&
-                        slope(close, 13) < 0);
-                break;
+                return trapDetection(c);
+
             case 97:
-                vote(s, bullishEngulfing(c) ||
-                        hammer(c) ||
-                        higherLow(c));
-                break;
+                return rejectionConfirmation(c);
+
             case 98:
-                vote(s, bearishEngulfing(c) ||
-                        shootingStar(c) ||
-                        lowerHigh(c));
-                break;
+                return multiFactorAgreement(c);
+
             case 99:
-                vote(s, compositeBullish(c, close));
-                break;
+                return finalPsychologyBias(c);
+
             case 100:
-                vote(s, compositeBearish(c, close));
-                break;
-        }
+                return finalPriceActionConfirmation(c);
 
-        return s;
-    }
-
-    private static void vote(Score s, boolean up) {
-        if (up) {
-            s.up = 1;
-        } else {
-            s.down = 1;
+            default:
+                return 0;
         }
     }
 
-    private static void voteRsi(Score s, double value) {
-        if (value > 50) {
-            s.up = 1;
-        } else if (value < 50) {
-            s.down = 1;
-        } else {
-            s.neutral = 1;
-        }
+    // ============================================================
+    // BASIC
+    // ============================================================
+
+    private static int direction(Candle x) {
+
+        if (x.bullish()) return 1;
+        if (x.bearish()) return -1;
+        return 0;
     }
 
-    private static void voteRsiMomentum(
-            Score s,
-            double current,
-            double previous
+    private static int bodyDominance(List<Candle> c) {
+
+        Candle x = lastCandle(c);
+
+        if (x.bodyRatio() > 0.65) {
+            return direction(x);
+        }
+
+        return 0;
+    }
+
+    private static int closeNearHighLow(Candle x) {
+
+        double p = x.closeLocation();
+
+        if (p > 0.80) return 1;
+        if (p < 0.20) return -1;
+
+        return 0;
+    }
+
+    private static int wickPressure(Candle x) {
+
+        if (x.lowerWick() > x.upperWick() * 1.5) {
+            return 1;
+        }
+
+        if (x.upperWick() > x.lowerWick() * 1.5) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private static int consecutiveDirection(
+            List<Candle> c,
+            int count
     ) {
-        if (current > previous) {
-            s.up = 1;
-        } else if (current < previous) {
-            s.down = 1;
-        } else {
-            s.neutral = 1;
+
+        if (c.size() < count) return 0;
+
+        int bulls = 0;
+        int bears = 0;
+
+        for (int i = c.size() - count; i < c.size(); i++) {
+
+            Candle x = c.get(i);
+
+            if (x.bullish()) bulls++;
+            else if (x.bearish()) bears++;
         }
+
+        if (bulls == count) return 1;
+        if (bears == count) return -1;
+
+        return 0;
     }
 
-    private static void voteRsiZone(Score s, double value) {
-        if (value < 35) {
-            s.up = 1;
-        } else if (value > 65) {
-            s.down = 1;
-        } else if (value > 50) {
-            s.up = 1;
-        } else if (value < 50) {
-            s.down = 1;
-        } else {
-            s.neutral = 1;
-        }
-    }
-
-    private static void voteStochastic(Score s, double value) {
-        if (value < 20) {
-            s.up = 1;
-        } else if (value > 80) {
-            s.down = 1;
-        } else if (value > 50) {
-            s.up = 1;
-        } else if (value < 50) {
-            s.down = 1;
-        } else {
-            s.neutral = 1;
-        }
-    }
-
-    private static void voteStochasticMomentum(
-            Score s,
-            double[] close
+    private static int recentMomentum(
+            List<Candle> c,
+            int n
     ) {
-        double now = stochastic(close, 14);
-        double prev = stochasticPrevious(close, 14);
 
-        if (now > prev) {
-            s.up = 1;
-        } else if (now < prev) {
-            s.down = 1;
-        } else {
-            s.neutral = 1;
-        }
+        if (c.size() < n + 1) return 0;
+
+        double start = c.get(c.size() - n - 1).close;
+        double end = lastCandle(c).close;
+
+        return compare(end, start);
     }
 
-    private static void voteVolatility(
-            Score s,
-            double value
+    private static int candleContinuation(
+            Candle last,
+            Candle prev
     ) {
-        if (value > 0) {
-            s.up = 1;
-        } else {
-            s.neutral = 1;
-        }
+
+        if (last.bullish() && prev.bullish()) return 1;
+        if (last.bearish() && prev.bearish()) return -1;
+
+        return 0;
     }
 
-    /*
-     * ---------------------------------------------------------
-     * IMAGE -> APPROXIMATE CANDLE EXTRACTION
-     * ---------------------------------------------------------
-     */
-    private static List<Candle> extractCandles(Bitmap bmp) {
+    private static int candleReversal(
+            Candle last,
+            Candle prev
+    ) {
 
-        int w = bmp.getWidth();
-        int h = bmp.getHeight();
+        if (prev.bearish() && last.bullish()
+                && last.close > prev.open) {
+            return 1;
+        }
+
+        if (prev.bullish() && last.bearish()
+                && last.close < prev.open) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    // ============================================================
+    // WICK PSYCHOLOGY
+    // ============================================================
+
+    private static int bullishRejection(Candle x) {
+
+        if (x.lowerWick() > x.body() * 1.5
+                && x.closeLocation() > 0.55) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static int bearishRejection(Candle x) {
+
+        if (x.upperWick() > x.body() * 1.5
+                && x.closeLocation() < 0.45) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private static int lowerWickPressure(List<Candle> c) {
+
+        int up = 0;
+        int down = 0;
+
+        int n = Math.min(5, c.size());
+
+        for (int i = c.size() - n; i < c.size(); i++) {
+
+            Candle x = c.get(i);
+
+            if (x.lowerWick() > x.body()) up++;
+            if (x.upperWick() > x.body()) down++;
+        }
+
+        return compare(up, down);
+    }
+
+    private static int upperWickPressure(List<Candle> c) {
+
+        int up = 0;
+        int down = 0;
+
+        int n = Math.min(5, c.size());
+
+        for (int i = c.size() - n; i < c.size(); i++) {
+
+            Candle x = c.get(i);
+
+            if (x.upperWick() > x.body()) down++;
+            if (x.lowerWick() > x.body()) up++;
+        }
+
+        return compare(up, down);
+    }
+
+    private static int strongBullClose(Candle x) {
+
+        if (x.bullish() && x.closeLocation() > 0.75) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static int strongBearClose(Candle x) {
+
+        if (x.bearish() && x.closeLocation() < 0.25) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private static int wickAgainstTrend(List<Candle> c) {
+
+        int trend = slopeRule(c, 8);
+
+        Candle x = lastCandle(c);
+
+        if (trend > 0 && x.upperWick() > x.body() * 1.7) {
+            return -1;
+        }
+
+        if (trend < 0 && x.lowerWick() > x.body() * 1.7) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static int wickContinuation(List<Candle> c) {
+
+        Candle x = lastCandle(c);
+
+        if (x.lowerWick() > x.upperWick()
+                && x.closeLocation() > 0.6) {
+            return 1;
+        }
+
+        if (x.upperWick() > x.lowerWick()
+                && x.closeLocation() < 0.4) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private static int rejectionAfterImpulse(List<Candle> c) {
+
+        if (c.size() < 5) return 0;
+
+        double impulse = 0;
+
+        for (int i = c.size() - 5; i < c.size() - 1; i++) {
+            impulse += c.get(i).close - c.get(i).open;
+        }
+
+        Candle last = lastCandle(c);
+
+        if (impulse > 0 && last.upperWick() > last.body()) {
+            return -1;
+        }
+
+        if (impulse < 0 && last.lowerWick() > last.body()) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static int exhaustionWick(List<Candle> c) {
+
+        int trend = slopeRule(c, 10);
+
+        Candle x = lastCandle(c);
+
+        if (trend > 0 && x.upperWick() > x.body() * 2) {
+            return -1;
+        }
+
+        if (trend < 0 && x.lowerWick() > x.body() * 2) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    // ============================================================
+    // TREND
+    // ============================================================
+
+    private static int slopeRule(
+            List<Candle> c,
+            int n
+    ) {
+
+        if (c.size() < n) return 0;
+
+        double first = c.get(c.size() - n).close;
+        double last = lastCandle(c).close;
+
+        return compare(last, first);
+    }
+
+    private static int emaDirection(
+            List<Candle> c,
+            int period
+    ) {
+
+        double ema = ema(c, period);
+
+        return compare(lastCandle(c).close, ema);
+    }
+
+    private static int priceVsSma(
+            List<Candle> c,
+            int period
+    ) {
+
+        double sma = sma(c, period);
+
+        return compare(lastCandle(c).close, sma);
+    }
+
+    private static int trendAlignment(List<Candle> c) {
+
+        double ema5 = ema(c, 5);
+        double ema9 = ema(c, 9);
+        double ema20 = ema(c, 20);
+
+        if (ema5 > ema9 && ema9 > ema20) return 1;
+        if (ema5 < ema9 && ema9 < ema20) return -1;
+
+        return 0;
+    }
+
+    // ============================================================
+    // MOMENTUM
+    // ============================================================
+
+    private static int momentumRule(
+            List<Candle> c,
+            int n
+    ) {
+
+        if (c.size() < n + 1) return 0;
+
+        double total = 0;
+
+        for (int i = c.size() - n; i < c.size(); i++) {
+            total += c.get(i).close - c.get(i).open;
+        }
+
+        return compare(total, 0);
+    }
+
+    private static int rocRule(
+            List<Candle> c,
+            int n
+    ) {
+
+        if (c.size() <= n) return 0;
+
+        double oldPrice = c.get(c.size() - n - 1).close;
+        double current = lastCandle(c).close;
+
+        if (Math.abs(oldPrice) < 0.000001) return 0;
+
+        double roc =
+                ((current - oldPrice) / Math.abs(oldPrice)) * 100.0;
+
+        if (roc > 0.05) return 1;
+        if (roc < -0.05) return -1;
+
+        return 0;
+    }
+
+    private static int accelerationRule(List<Candle> c) {
+
+        if (c.size() < 5) return 0;
+
+        double recent =
+                c.get(c.size() - 1).close -
+                        c.get(c.size() - 2).close;
+
+        double previous =
+                c.get(c.size() - 2).close -
+                        c.get(c.size() - 3).close;
+
+        return compare(recent, previous);
+    }
+
+    private static int momentumDivergence(List<Candle> c) {
+
+        if (c.size() < 8) return 0;
+
+        double priceOld = c.get(c.size() - 8).close;
+        double priceNew = lastCandle(c).close;
+
+        double momOld =
+                c.get(c.size() - 5).close -
+                        c.get(c.size() - 8).close;
+
+        double momNew =
+                lastCandle(c).close -
+                        c.get(c.size() - 4).close;
+
+        if (priceNew > priceOld && momNew < momOld) {
+            return -1;
+        }
+
+        if (priceNew < priceOld && momNew > momOld) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static int impulseStrength(List<Candle> c) {
+
+        Candle x = lastCandle(c);
+
+        if (x.bodyRatio() > 0.75) {
+            return direction(x);
+        }
+
+        return 0;
+    }
+
+    private static int momentumExhaustion(List<Candle> c) {
+
+        if (c.size() < 6) return 0;
+
+        int trend = slopeRule(c, 6);
+        Candle x = lastCandle(c);
+
+        if (trend > 0 && x.bodyRatio() < 0.25) {
+            return -1;
+        }
+
+        if (trend < 0 && x.bodyRatio() < 0.25) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    // ============================================================
+    // RSI
+    // ============================================================
+
+    private static int rsiRule(
+            List<Candle> c,
+            int period
+    ) {
+
+        double rsi = rsi(c, period);
+
+        if (rsi > 55) return 1;
+        if (rsi < 45) return -1;
+
+        return 0;
+    }
+
+    private static int rsiOversoldReversal(List<Candle> c) {
+
+        double rsi = rsi(c, 14);
+
+        if (rsi < 30 && lastCandle(c).bullish()) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static int rsiOverboughtReversal(List<Candle> c) {
+
+        double rsi = rsi(c, 14);
+
+        if (rsi > 70 && lastCandle(c).bearish()) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private static int rsiTrendConfirmation(List<Candle> c) {
+
+        double rsi = rsi(c, 14);
+
+        if (rsi > 50 && slopeRule(c, 8) > 0) {
+            return 1;
+        }
+
+        if (rsi < 50 && slopeRule(c, 8) < 0) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    // ============================================================
+    // STOCHASTIC
+    // ============================================================
+
+    private static int stochasticRule(List<Candle> c) {
+
+        double k = stochastic(c, 14);
+
+        if (k > 55) return 1;
+        if (k < 45) return -1;
+
+        return 0;
+    }
+
+    private static int stochasticReversal(List<Candle> c) {
+
+        double k = stochastic(c, 14);
+        Candle x = lastCandle(c);
+
+        if (k < 20 && x.bullish()) return 1;
+        if (k > 80 && x.bearish()) return -1;
+
+        return 0;
+    }
+
+    private static int oscillatorAgreement(List<Candle> c) {
+
+        double r = rsi(c, 14);
+        double s = stochastic(c, 14);
+
+        if (r > 55 && s > 55) return 1;
+        if (r < 45 && s < 45) return -1;
+
+        return 0;
+    }
+
+    private static int oscillatorMomentum(List<Candle> c) {
+
+        double r = rsi(c, 7);
+        double s = stochastic(c, 9);
+
+        if (r > 60 && s > 60) return 1;
+        if (r < 40 && s < 40) return -1;
+
+        return 0;
+    }
+
+    private static int oscillatorExhaustion(List<Candle> c) {
+
+        double r = rsi(c, 14);
+
+        if (r > 75) return -1;
+        if (r < 25) return 1;
+
+        return 0;
+    }
+
+    // ============================================================
+    // MACD / MOVING AVERAGE
+    // ============================================================
+
+    private static int macdDirection(List<Candle> c) {
+
+        double macd =
+                ema(c, 12) - ema(c, 26);
+
+        return compare(macd, 0);
+    }
+
+    private static int macdMomentum(List<Candle> c) {
+
+        if (c.size() < 5) return 0;
+
+        double now =
+                ema(c, 12) - ema(c, 26);
+
+        List<Candle> oldList =
+                new ArrayList<>(c.subList(0, c.size() - 2));
+
+        double old =
+                ema(oldList, 12) - ema(oldList, 26);
+
+        return compare(now, old);
+    }
+
+    private static int macdCross(List<Candle> c) {
+
+        if (c.size() < 3) return 0;
+
+        List<Candle> before =
+                new ArrayList<>(c.subList(0, c.size() - 1));
+
+        double oldMacd =
+                ema(before, 12) - ema(before, 26);
+
+        double newMacd =
+                ema(c, 12) - ema(c, 26);
+
+        if (oldMacd <= 0 && newMacd > 0) return 1;
+        if (oldMacd >= 0 && newMacd < 0) return -1;
+
+        return 0;
+    }
+
+    private static int macdHistogram(List<Candle> c) {
+
+        double macd =
+                ema(c, 12) - ema(c, 26);
+
+        double signal =
+                emaMacdSignal(c);
+
+        return compare(macd, signal);
+    }
+
+    private static int emaCross(
+            List<Candle> c,
+            int fast,
+            int slow
+    ) {
+
+        double f = ema(c, fast);
+        double s = ema(c, slow);
+
+        return compare(f, s);
+    }
+
+    private static int movingAverageStack(List<Candle> c) {
+
+        double e5 = ema(c, 5);
+        double e9 = ema(c, 9);
+        double e20 = ema(c, 20);
+
+        if (e5 > e9 && e9 > e20) return 1;
+        if (e5 < e9 && e9 < e20) return -1;
+
+        return 0;
+    }
+
+    private static int movingAverageSlope(List<Candle> c) {
+
+        if (c.size() < 5) return 0;
+
+        double now = sma(c, 10);
+
+        List<Candle> old =
+                new ArrayList<>(c.subList(0, c.size() - 3));
+
+        double previous = sma(old, 10);
+
+        return compare(now, previous);
+    }
+
+    private static int movingAverageCompression(List<Candle> c) {
+
+        double e5 = ema(c, 5);
+        double e20 = ema(c, 20);
+
+        double distance = Math.abs(e5 - e20);
+
+        double avgRange = averageRange(c, 10);
+
+        if (distance < avgRange * 0.15) {
+            return direction(lastCandle(c));
+        }
+
+        return 0;
+    }
+
+    // ============================================================
+    // SUPPORT / RESISTANCE / STRUCTURE
+    // ============================================================
+
+    private static int supportBounce(List<Candle> c) {
+
+        double support = lowestLow(c, 10);
+        Candle x = lastCandle(c);
+
+        if (x.low <= support * 1.001
+                && x.close > x.open) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static int resistanceReject(List<Candle> c) {
+
+        double resistance = highestHigh(c, 10);
+        Candle x = lastCandle(c);
+
+        if (x.high >= resistance * 0.999
+                && x.close < x.open) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private static int higherHighs(List<Candle> c) {
+
+        if (c.size() < 6) return 0;
+
+        double oldHigh =
+                highestHigh(c.subList(0, c.size() - 3), 3);
+
+        double newHigh =
+                highestHigh(c, 3);
+
+        return compare(newHigh, oldHigh);
+    }
+
+    private static int lowerLows(List<Candle> c) {
+
+        if (c.size() < 6) return 0;
+
+        double oldLow =
+                lowestLow(c.subList(0, c.size() - 3), 3);
+
+        double newLow =
+                lowestLow(c, 3);
+
+        return compare(oldLow, newLow);
+    }
+
+    private static int higherLows(List<Candle> c) {
+
+        if (c.size() < 6) return 0;
+
+        double oldLow =
+                lowestLow(c.subList(0, c.size() - 3), 3);
+
+        double newLow =
+                lowestLow(c, 3);
+
+        return compare(newLow, oldLow);
+    }
+
+    private static int lowerHighs(List<Candle> c) {
+
+        if (c.size() < 6) return 0;
+
+        double oldHigh =
+                highestHigh(c.subList(0, c.size() - 3), 3);
+
+        double newHigh =
+                highestHigh(c, 3);
+
+        return compare(oldHigh, newHigh);
+    }
+
+    private static int structureBreakUp(List<Candle> c) {
+
+        double resistance =
+                highestHigh(c.subList(0, c.size() - 1), 8);
+
+        return lastCandle(c).close > resistance ? 1 : 0;
+    }
+
+    private static int structureBreakDown(List<Candle> c) {
+
+        double support =
+                lowestLow(c.subList(0, c.size() - 1), 8);
+
+        return lastCandle(c).close < support ? -1 : 0;
+    }
+
+    private static int rangePosition(List<Candle> c) {
+
+        double high = highestHigh(c, 12);
+        double low = lowestLow(c, 12);
+
+        double range = Math.max(0.000001, high - low);
+
+        double p =
+                (lastCandle(c).close - low) / range;
+
+        if (p > 0.70) return 1;
+        if (p < 0.30) return -1;
+
+        return 0;
+    }
+
+    private static int structureStrength(List<Candle> c) {
+
+        int hh = higherHighs(c);
+        int hl = higherLows(c);
+
+        int lh = lowerHighs(c);
+        int ll = lowerLows(c);
+
+        if (hh > 0 && hl > 0) return 1;
+        if (lh < 0 && ll < 0) return -1;
+
+        return 0;
+    }
+
+    // ============================================================
+    // BOLLINGER / VOLATILITY
+    // ============================================================
+
+    private static int bollingerPosition(List<Candle> c) {
+
+        double mid = sma(c, 20);
+        double sd = standardDeviation(c, 20);
+
+        double upper = mid + sd * 2;
+        double lower = mid - sd * 2;
+
+        double price = lastCandle(c).close;
+
+        if (price > upper) return 1;
+        if (price < lower) return -1;
+
+        return compare(price, mid);
+    }
+
+    private static int bollingerBreakout(List<Candle> c) {
+
+        double mid = sma(c, 20);
+        double sd = standardDeviation(c, 20);
+
+        double upper = mid + sd * 2;
+        double lower = mid - sd * 2;
+
+        Candle x = lastCandle(c);
+
+        if (x.close > upper) return 1;
+        if (x.close < lower) return -1;
+
+        return 0;
+    }
+
+    private static int bollingerMeanReversion(List<Candle> c) {
+
+        double mid = sma(c, 20);
+        double sd = standardDeviation(c, 20);
+
+        double upper = mid + sd * 2;
+        double lower = mid - sd * 2;
+
+        Candle x = lastCandle(c);
+
+        if (x.close > upper && x.bearish()) return -1;
+        if (x.close < lower && x.bullish()) return 1;
+
+        return 0;
+    }
+
+    private static int volatilityExpansion(List<Candle> c) {
+
+        double now = averageRange(c, 3);
+        double old = averageRange(c, 10);
+
+        return compare(now, old);
+    }
+
+    private static int volatilityContraction(List<Candle> c) {
+
+        double now = averageRange(c, 3);
+        double old = averageRange(c, 10);
+
+        if (now < old * 0.75) {
+            return direction(lastCandle(c));
+        }
+
+        return 0;
+    }
+
+    private static int breakoutUp(List<Candle> c) {
+
+        double resistance =
+                highestHigh(c.subList(0, c.size() - 1), 10);
+
+        if (lastCandle(c).close > resistance) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static int breakoutDown(List<Candle> c) {
+
+        double support =
+                lowestLow(c.subList(0, c.size() - 1), 10);
+
+        if (lastCandle(c).close < support) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private static int falseBreakout(List<Candle> c) {
+
+        if (c.size() < 3) return 0;
+
+        Candle x = lastCandle(c);
+        double high =
+                highestHigh(c.subList(0, c.size() - 1), 8);
+
+        double low =
+                lowestLow(c.subList(0, c.size() - 1), 8);
+
+        if (x.high > high && x.close < high) {
+            return -1;
+        }
+
+        if (x.low < low && x.close > low) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static int breakoutRetest(List<Candle> c) {
+
+        if (c.size() < 4) return 0;
+
+        Candle x = lastCandle(c);
+
+        double previousHigh =
+                highestHigh(c.subList(0, c.size() - 1), 6);
+
+        double previousLow =
+                lowestLow(c.subList(0, c.size() - 1), 6);
+
+        if (x.low <= previousHigh
+                && x.close > previousHigh) {
+            return 1;
+        }
+
+        if (x.high >= previousLow
+                && x.close < previousLow) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private static int rangeBreakPressure(List<Candle> c) {
+
+        double range = averageRange(c, 8);
+        Candle x = lastCandle(c);
+
+        if (x.range() > range * 1.4) {
+            return direction(x);
+        }
+
+        return 0;
+    }
+
+    // ============================================================
+    // ATR / VOLATILITY
+    // ============================================================
+
+    private static int trueRangeDirection(List<Candle> c) {
+
+        double tr = trueRange(c, lastCandle(c));
+        double atr = averageTrueRange(c, 14);
+
+        return tr > atr ? direction(lastCandle(c)) : 0;
+    }
+
+    private static int atrExpansion(List<Candle> c) {
+
+        double current =
+                averageTrueRange(c, 5);
+
+        double old =
+                averageTrueRange(c, 14);
+
+        return compare(current, old);
+    }
+
+    private static int atrContraction(List<Candle> c) {
+
+        double current =
+                averageTrueRange(c, 5);
+
+        double old =
+                averageTrueRange(c, 14);
+
+        if (current < old * 0.8) {
+            return direction(lastCandle(c));
+        }
+
+        return 0;
+    }
+
+    private static int candleRangePressure(List<Candle> c) {
+
+        double current = lastCandle(c).range();
+        double avg = averageRange(c, 10);
+
+        if (current > avg * 1.5) {
+            return direction(lastCandle(c));
+        }
+
+        return 0;
+    }
+
+    private static int bodyRangePressure(List<Candle> c) {
+
+        Candle x = lastCandle(c);
+
+        if (x.bodyRatio() > 0.7) {
+            return direction(x);
+        }
+
+        return 0;
+    }
+
+    private static int volatilityTrend(List<Candle> c) {
+
+        double shortVol = averageRange(c, 5);
+        double longVol = averageRange(c, 15);
+
+        if (shortVol > longVol) {
+            return direction(lastCandle(c));
+        }
+
+        return 0;
+    }
+
+    private static int exhaustionAfterRun(List<Candle> c) {
+
+        int trend = consecutiveDirection(c, 5);
+        Candle x = lastCandle(c);
+
+        if (trend > 0 && x.bodyRatio() < 0.25) return -1;
+        if (trend < 0 && x.bodyRatio() < 0.25) return 1;
+
+        return 0;
+    }
+
+    private static int reversalAfterExtreme(List<Candle> c) {
+
+        double rsi = rsi(c, 14);
+        Candle x = lastCandle(c);
+
+        if (rsi > 75 && x.bearish()) return -1;
+        if (rsi < 25 && x.bullish()) return 1;
+
+        return 0;
+    }
+
+    // ============================================================
+    // ADVANCED PSYCHOLOGY
+    // ============================================================
+
+    private static int pressureBalance(List<Candle> c) {
+
+        double bull = 0;
+        double bear = 0;
+
+        int n = Math.min(8, c.size());
+
+        for (int i = c.size() - n; i < c.size(); i++) {
+
+            Candle x = c.get(i);
+
+            if (x.bullish()) {
+                bull += x.body() + x.lowerWick() * 0.5;
+            }
+
+            if (x.bearish()) {
+                bear += x.body() + x.upperWick() * 0.5;
+            }
+        }
+
+        return compare(bull, bear);
+    }
+
+    private static int buyerSellerDominance(List<Candle> c) {
+
+        double buyers = 0;
+        double sellers = 0;
+
+        int n = Math.min(10, c.size());
+
+        for (int i = c.size() - n; i < c.size(); i++) {
+
+            Candle x = c.get(i);
+
+            buyers += x.closeLocation() * x.range();
+            sellers += (1.0 - x.closeLocation()) * x.range();
+        }
+
+        return compare(buyers, sellers);
+    }
+
+    private static int candleSequencePsychology(List<Candle> c) {
+
+        if (c.size() < 6) return 0;
+
+        int bull = 0;
+        int bear = 0;
+
+        for (int i = c.size() - 6; i < c.size(); i++) {
+
+            Candle x = c.get(i);
+
+            if (x.bullish()) bull++;
+            if (x.bearish()) bear++;
+        }
+
+        if (bull >= 4) return 1;
+        if (bear >= 4) return -1;
+
+        return 0;
+    }
+
+    private static int impulseCorrectionBalance(List<Candle> c) {
+
+        if (c.size() < 8) return 0;
+
+        double impulse = 0;
+        double correction = 0;
+
+        for (int i = c.size() - 8; i < c.size() - 3; i++) {
+            impulse += c.get(i).close - c.get(i).open;
+        }
+
+        for (int i = c.size() - 3; i < c.size(); i++) {
+            correction += c.get(i).close - c.get(i).open;
+        }
+
+        if (impulse > 0 && correction > -impulse * 0.6) {
+            return 1;
+        }
+
+        if (impulse < 0 && correction < -impulse * 0.6) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private static int trendExhaustion(List<Candle> c) {
+
+        int trend = slopeRule(c, 10);
+        double rsi = rsi(c, 14);
+
+        if (trend > 0 && rsi > 72) return -1;
+        if (trend < 0 && rsi < 28) return 1;
+
+        return 0;
+    }
+
+    private static int trapDetection(List<Candle> c) {
+
+        Candle x = lastCandle(c);
+
+        double resistance =
+                highestHigh(c.subList(0, c.size() - 1), 8);
+
+        double support =
+                lowestLow(c.subList(0, c.size() - 1), 8);
+
+        if (x.high > resistance
+                && x.close < resistance
+                && x.upperWick() > x.body()) {
+            return -1;
+        }
+
+        if (x.low < support
+                && x.close > support
+                && x.lowerWick() > x.body()) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private static int rejectionConfirmation(List<Candle> c) {
+
+        Candle x = lastCandle(c);
+
+        if (bullishRejection(x)
+                > 0
+                && slopeRule(c, 5) <= 0) {
+            return 1;
+        }
+
+        if (bearishRejection(x)
+                < 0
+                && slopeRule(c, 5) >= 0) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private static int multiFactorAgreement(List<Candle> c) {
+
+        int a = slopeRule(c, 8);
+        int b = rsiTrendConfirmation(c);
+        int d = macdDirection(c);
+        int e = direction(lastCandle(c));
+
+        int up = 0;
+        int down = 0;
+
+        if (a > 0) up++;
+        if (b > 0) up++;
+        if (d > 0) up++;
+        if (e > 0) up++;
+
+        if (a < 0) down++;
+        if (b < 0) down++;
+        if (d < 0) down++;
+        if (e < 0) down++;
+
+        if (up >= 3) return 1;
+        if (down >= 3) return -1;
+
+        return 0;
+    }
+
+    private static int finalPsychologyBias(List<Candle> c) {
+
+        int pressure = pressureBalance(c);
+        int structure = structureStrength(c);
+        int momentum = momentumRule(c, 5);
+        int wick = wickPressure(lastCandle(c));
+
+        int up = 0;
+        int down = 0;
+
+        if (pressure > 0) up++;
+        if (structure > 0) up++;
+        if (momentum > 0) up++;
+        if (wick > 0) up++;
+
+        if (pressure < 0) down++;
+        if (structure < 0) down++;
+        if (momentum < 0) down++;
+        if (wick < 0) down++;
+
+        if (up >= 3) return 1;
+        if (down >= 3) return -1;
+
+        return 0;
+    }
+
+    private static int finalPriceActionConfirmation(
+            List<Candle> c
+    ) {
+
+        Candle x = lastCandle(c);
+
+        int trend = slopeRule(c, 8);
+        int close = closeNearHighLow(x);
+        int body = bodyDominance(c);
+        int rejection = wickPressure(x);
+
+        int up = 0;
+        int down = 0;
+
+        if (trend > 0) up++;
+        if (close > 0) up++;
+        if (body > 0) up++;
+        if (rejection > 0) up++;
+
+        if (trend < 0) down++;
+        if (close < 0) down++;
+        if (body < 0) down++;
+        if (rejection < 0) down++;
+
+        if (up >= 3) return 1;
+        if (down >= 3) return -1;
+
+        return 0;
+    }
+
+    // ============================================================
+    // CANDLE EXTRACTION FROM SCREENSHOT
+    // ============================================================
+
+    private static List<Candle> extractCandles(Bitmap bitmap) {
+
+        List<Candle> candles = new ArrayList<>();
+
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+
+        if (width < 50 || height < 50) {
+            return candles;
+        }
 
         /*
-         * Ignore the extreme edges where mobile trading apps
-         * commonly have buttons, menus and status overlays.
+         * Scan central chart area.
+         * Avoid top/bottom UI regions.
          */
-        int left = (int) (w * 0.08);
-        int right = (int) (w * 0.94);
-        int top = (int) (h * 0.12);
-        int bottom = (int) (h * 0.88);
+        int top = (int) (height * 0.12);
+        int bottom = (int) (height * 0.88);
 
-        int usableWidth = Math.max(1, right - left);
+        int step = Math.max(2, width / 180);
 
-        /*
-         * Try approximately 40 candle columns.
-         */
-        int candleWidth = Math.max(
-                4,
-                usableWidth / 42
-        );
+        List<Double> centers = new ArrayList<>();
+        List<Double> highs = new ArrayList<>();
+        List<Double> lows = new ArrayList<>();
+        List<Boolean> bullish = new ArrayList<>();
 
-        List<Candle> result = new ArrayList<>();
+        for (int x = 2; x < width - 2; x += step) {
 
-        for (int x0 = left; x0 < right; x0 += candleWidth) {
-
-            int x1 = Math.min(
-                    right,
-                    x0 + candleWidth
-            );
-
-            List<Integer> coloredY = new ArrayList<>();
-            int green = 0;
             int red = 0;
+            int green = 0;
 
-            for (int x = x0; x < x1; x++) {
+            double high = Double.MAX_VALUE;
+            double low = Double.MIN_VALUE;
 
-                for (int y = top; y < bottom; y += 2) {
+            double sum = 0;
+            int count = 0;
 
-                    int pixel = bmp.getPixel(x, y);
+            for (int y = top; y < bottom; y += 2) {
 
-                    int r = (pixel >> 16) & 255;
-                    int g = (pixel >> 8) & 255;
-                    int b = pixel & 255;
+                int pixel = bitmap.getPixel(x, y);
 
-                    boolean greenPixel =
-                            g > r * 1.18 &&
-                            g > b * 1.05 &&
-                            g > 70;
+                int r = Color.red(pixel);
+                int g = Color.green(pixel);
+                int b = Color.blue(pixel);
 
-                    boolean redPixel =
-                            r > g * 1.18 &&
-                            r > b * 1.10 &&
-                            r > 70;
+                /*
+                 * Broad green candle detection.
+                 */
+                if (g > r * 1.15 && g > b * 1.05 && g > 70) {
+                    green++;
+                    high = Math.min(high, y);
+                    low = Math.max(low, y);
+                    sum += y;
+                    count++;
+                }
 
-                    if (greenPixel || redPixel) {
-                        coloredY.add(y);
-
-                        if (greenPixel) {
-                            green++;
-                        }
-
-                        if (redPixel) {
-                            red++;
-                        }
-                    }
+                /*
+                 * Broad red candle detection.
+                 */
+                if (r > g * 1.15 && r > b * 1.05 && r > 70) {
+                    red++;
+                    high = Math.min(high, y);
+                    low = Math.max(low, y);
+                    sum += y;
+                    count++;
                 }
             }
 
-            if (coloredY.size() < 3) {
-                continue;
+            if (count >= 2) {
+
+                boolean isBull = green >= red;
+
+                double center =
+                        sum / Math.max(1, count);
+
+                centers.add(center);
+                highs.add(high == Double.MAX_VALUE
+                        ? center : high);
+                lows.add(low == Double.MIN_VALUE
+                        ? center : low);
+                bullish.add(isBull);
             }
-
-            Collections.sort(coloredY);
-
-            int lowY = coloredY.get(0);
-            int highY = coloredY.get(
-                    coloredY.size() - 1
-            );
-
-            int minGreenRedY = lowY;
-            int maxGreenRedY = highY;
-
-            double highPrice =
-                    bottom - minGreenRedY;
-
-            double lowPrice =
-                    bottom - maxGreenRedY;
-
-            if (highPrice <= lowPrice) {
-                continue;
-            }
-
-            /*
-             * Determine approximate candle body.
-             */
-            int mid = coloredY.size() / 2;
-
-            int bodyTop =
-                    coloredY.get(
-                            Math.max(
-                                    0,
-                                    mid - coloredY.size() / 5
-                            )
-                    );
-
-            int bodyBottom =
-                    coloredY.get(
-                            Math.min(
-                                    coloredY.size() - 1,
-                                    mid + coloredY.size() / 5
-                            )
-                    );
-
-            double close;
-            double open;
-
-            if (green >= red) {
-                close = bottom - bodyTop;
-                open = bottom - bodyBottom;
-            } else {
-                open = bottom - bodyTop;
-                close = bottom - bodyBottom;
-            }
-
-            /*
-             * Compress values into a stable chart-price scale.
-             */
-            double scale = 1000.0 / Math.max(1, h);
-
-            result.add(
-                    new Candle(
-                            open * scale,
-                            highPrice * scale,
-                            lowPrice * scale,
-                            close * scale
-                    )
-            );
         }
 
         /*
-         * If too many tiny segments were detected, merge by
-         * taking evenly spaced samples.
+         * Convert runs of detected chart columns into candles.
          */
-        if (result.size() > 60) {
-            List<Candle> reduced = new ArrayList<>();
+        if (centers.size() < 10) {
+            return fallbackCandles(bitmap);
+        }
 
-            double step =
-                    (double) result.size() / 50.0;
+        int groupSize = Math.max(1, centers.size() / 50);
 
-            for (int i = 0; i < 50; i++) {
-                int index =
-                        Math.min(
-                                result.size() - 1,
-                                (int) (i * step)
-                        );
+        for (int i = 0; i < centers.size(); i += groupSize) {
 
-                reduced.add(result.get(index));
+            int end =
+                    Math.min(centers.size(), i + groupSize);
+
+            if (end <= i) continue;
+
+            double high = 0;
+            double low = Double.MAX_VALUE;
+            double open = centers.get(i);
+            double close = centers.get(end - 1);
+
+            int bullCount = 0;
+
+            for (int j = i; j < end; j++) {
+
+                high = Math.max(
+                        high,
+                        centers.get(j)
+                );
+
+                low = Math.min(
+                        low,
+                        centers.get(j)
+                );
+
+                if (bullish.get(j)) {
+                    bullCount++;
+                }
             }
 
-            return reduced;
+            /*
+             * Screen Y axis is inverted.
+             * Smaller Y = higher price.
+             *
+             * Convert to mathematical price direction
+             * by negating screen coordinates.
+             */
+            double o = -open;
+            double cl = -close;
+            double h = -high;
+            double l = -low;
+
+            if (bullCount >= (end - i) / 2.0) {
+
+                if (cl <= o) {
+                    cl = o + Math.max(0.5, Math.abs(o) * 0.002);
+                }
+
+            } else {
+
+                if (cl >= o) {
+                    cl = o - Math.max(0.5, Math.abs(o) * 0.002);
+                }
+            }
+
+            h = Math.max(h, Math.max(o, cl));
+            l = Math.min(l, Math.min(o, cl));
+
+            candles.add(
+                    new Candle(o, h, l, cl)
+            );
+        }
+
+        return candles;
+    }
+
+    /**
+     * Fallback image-based candle approximation.
+     * Still deterministic and screenshot-only.
+     */
+    private static List<Candle> fallbackCandles(Bitmap bitmap) {
+
+        List<Candle> result = new ArrayList<>();
+
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+
+        int count = Math.min(40, Math.max(10, width / 12));
+
+        double previous =
+                -(height * 0.50);
+
+        for (int i = 0; i < count; i++) {
+
+            int x =
+                    (int) (((double) i / count) * width);
+
+            int top = (int) (height * 0.15);
+            int bottom = (int) (height * 0.85);
+
+            int green = 0;
+            int red = 0;
+
+            int minY = bottom;
+            int maxY = top;
+
+            for (int y = top; y < bottom; y += 3) {
+
+                int pixel = bitmap.getPixel(
+                        Math.min(width - 1, Math.max(0, x)),
+                        y
+                );
+
+                int r = Color.red(pixel);
+                int g = Color.green(pixel);
+                int b = Color.blue(pixel);
+
+                if (g > r * 1.15 && g > 70) {
+                    green++;
+                    minY = Math.min(minY, y);
+                    maxY = Math.max(maxY, y);
+                }
+
+                if (r > g * 1.15 && r > 70) {
+                    red++;
+                    minY = Math.min(minY, y);
+                    maxY = Math.max(maxY, y);
+                }
+            }
+
+            if (green + red < 2) {
+                continue;
+            }
+
+            double close =
+                    -(minY + maxY) / 2.0;
+
+            double open = previous;
+
+            if (green >= red) {
+                close = Math.max(
+                        close,
+                        open + 0.5
+                );
+            } else {
+                close = Math.min(
+                        close,
+                        open - 0.5
+                );
+            }
+
+            double high =
+                    Math.max(
+                            Math.max(open, close),
+                            -minY
+                    );
+
+            double low =
+                    Math.min(
+                            Math.min(open, close),
+                            -maxY
+                    );
+
+            result.add(
+                    new Candle(
+                            open,
+                            high,
+                            low,
+                            close
+                    )
+            );
+
+            previous = close;
         }
 
         return result;
     }
 
-    private static int calculateImageQuality(
-            Bitmap bmp,
+    // ============================================================
+    // CHART QUALITY
+    // ============================================================
+
+    private static double calculateChartQuality(
+            Bitmap bitmap,
             List<Candle> candles
     ) {
-        int w = bmp.getWidth();
-        int h = bmp.getHeight();
 
-        int samples = 0;
-        int chartPixels = 0;
-
-        int stepX = Math.max(1, w / 80);
-        int stepY = Math.max(1, h / 80);
-
-        for (int y = 0; y < h; y += stepY) {
-            for (int x = 0; x < w; x += stepX) {
-
-                int pixel = bmp.getPixel(x, y);
-
-                int r = (pixel >> 16) & 255;
-                int g = (pixel >> 8) & 255;
-                int b = pixel & 255;
-
-                samples++;
-
-                if ((g > r * 1.15 && g > 60) ||
-                        (r > g * 1.15 && r > 60)) {
-                    chartPixels++;
-                }
-            }
+        if (candles.size() < 10) {
+            return 0;
         }
 
-        int colorScore =
-                samples == 0
-                        ? 0
-                        : (chartPixels * 100) / samples;
+        double countScore =
+                Math.min(100.0,
+                        candles.size() * 2.0);
 
-        int candleScore =
-                Math.min(
-                        100,
-                        candles.size() * 2
-                );
+        double movement = 0;
 
-        return Math.min(
-                100,
-                (colorScore + candleScore) / 2
+        for (int i = 1; i < candles.size(); i++) {
+
+            movement +=
+                    Math.abs(
+                            candles.get(i).close -
+                                    candles.get(i - 1).close
+                    );
+        }
+
+        double movementScore =
+                movement > 0 ? 50 : 0;
+
+        double quality =
+                countScore * 0.6 +
+                        movementScore * 0.4;
+
+        return Math.max(
+                0,
+                Math.min(100, quality)
         );
     }
 
-    /*
-     * ---------------------------------------------------------
-     * ARRAY HELPERS
-     * ---------------------------------------------------------
-     */
-
-    private static double[] closes(List<Candle> c) {
-        double[] a = new double[c.size()];
-        for (int i = 0; i < c.size(); i++) {
-            a[i] = c.get(i).close;
-        }
-        return a;
-    }
-
-    private static double[] opens(List<Candle> c) {
-        double[] a = new double[c.size()];
-        for (int i = 0; i < c.size(); i++) {
-            a[i] = c.get(i).open;
-        }
-        return a;
-    }
-
-    private static double[] highs(List<Candle> c) {
-        double[] a = new double[c.size()];
-        for (int i = 0; i < c.size(); i++) {
-            a[i] = c.get(i).high;
-        }
-        return a;
-    }
-
-    private static double[] lows(List<Candle> c) {
-        double[] a = new double[c.size()];
-        for (int i = 0; i < c.size(); i++) {
-            a[i] = c.get(i).low;
-        }
-        return a;
-    }
-
-    private static int last(double[] a) {
-        return Math.max(0, a.length - 1);
-    }
-
-    private static Candle lastCandle(List<Candle> c) {
-        return c.get(c.size() - 1);
-    }
+    // ============================================================
+    // SMA
+    // ============================================================
 
     private static double sma(
-            double[] a,
-            int n
+            List<Candle> c,
+            int period
     ) {
-        n = Math.min(n, a.length);
+
+        if (c.isEmpty()) return 0;
+
+        int n = Math.min(period, c.size());
 
         double sum = 0;
 
-        for (int i = a.length - n; i < a.length; i++) {
-            sum += a[i];
+        for (int i = c.size() - n; i < c.size(); i++) {
+            sum += c.get(i).close;
         }
 
-        return sum / Math.max(1, n);
+        return sum / n;
     }
 
+    // ============================================================
+    // EMA
+    // ============================================================
+
     private static double ema(
-            double[] a,
-            int n
+            List<Candle> c,
+            int period
     ) {
-        n = Math.max(2, Math.min(n, a.length));
 
-        double alpha = 2.0 / (n + 1.0);
-        double value = a[0];
+        if (c.isEmpty()) return 0;
 
-        for (int i = 1; i < a.length; i++) {
+        int p = Math.min(period, c.size());
+
+        double value =
+                c.get(0).close;
+
+        double multiplier =
+                2.0 / (p + 1.0);
+
+        for (int i = 1; i < c.size(); i++) {
+
             value =
-                    alpha * a[i] +
-                            (1.0 - alpha) * value;
+                    (c.get(i).close - value)
+                            * multiplier
+                            + value;
         }
 
         return value;
     }
 
-    private static double slope(
-            double[] a,
-            int n
-    ) {
-        n = Math.min(n, a.length);
-
-        if (n < 2) {
-            return 0;
-        }
-
-        return (
-                a[a.length - 1] -
-                        a[a.length - n]
-        ) / n;
-    }
-
-    private static double momentum(
-            double[] a,
-            int n
-    ) {
-        if (a.length <= n) {
-            return 0;
-        }
-
-        return a[a.length - 1] -
-                a[a.length - 1 - n];
-    }
-
-    private static double roc(
-            double[] a,
-            int n
-    ) {
-        if (a.length <= n) {
-            return 0;
-        }
-
-        double previous =
-                a[a.length - 1 - n];
-
-        if (Math.abs(previous) < 0.000001) {
-            return 0;
-        }
-
-        return (
-                (a[a.length - 1] - previous) /
-                        Math.abs(previous)
-        ) * 100.0;
-    }
+    // ============================================================
+    // RSI
+    // ============================================================
 
     private static double rsi(
-            double[] a,
-            int n
+            List<Candle> c,
+            int period
     ) {
-        n = Math.min(n, a.length - 1);
 
-        if (n < 2) {
-            return 50;
-        }
+        if (c.size() < 2) return 50;
 
-        double gain = 0;
-        double loss = 0;
+        int n =
+                Math.min(
+                        period,
+                        c.size() - 1
+                );
 
-        int start = a.length - n;
+        double gains = 0;
+        double losses = 0;
 
-        for (int i = start; i < a.length; i++) {
+        for (int i = c.size() - n; i < c.size(); i++) {
+
             double change =
-                    a[i] - a[i - 1];
+                    c.get(i).close -
+                            c.get(i - 1).close;
 
             if (change > 0) {
-                gain += change;
+                gains += change;
             } else {
-                loss -= change;
+                losses -= change;
             }
         }
 
-        if (loss == 0) {
-            return 100;
-        }
+        if (losses == 0) return 100;
 
         double rs =
-                gain / loss;
+                gains / losses;
 
         return 100.0 -
                 (100.0 / (1.0 + rs));
     }
 
-    private static double rsiPrevious(
-            double[] a,
-            int n
-    ) {
-        if (a.length < n + 3) {
-            return rsi(a, n);
-        }
-
-        double[] shortened =
-                new double[a.length - 1];
-
-        System.arraycopy(
-                a,
-                0,
-                shortened,
-                0,
-                shortened.length
-        );
-
-        return rsi(shortened, n);
-    }
-
-    private static double macd(
-            double[] a,
-            int fast,
-            int slow,
-            int signal
-    ) {
-        return ema(a, fast) -
-                ema(a, slow);
-    }
-
-    private static boolean macdMomentum(
-            double[] a
-    ) {
-        if (a.length < 4) {
-            return false;
-        }
-
-        double now =
-                macd(a, 12, 26, 9);
-
-        double[] old =
-                new double[a.length - 2];
-
-        System.arraycopy(
-                a,
-                0,
-                old,
-                0,
-                old.length
-        );
-
-        double previous =
-                macd(old, 12, 26, 9);
-
-        return now > previous;
-    }
+    // ============================================================
+    // STOCHASTIC
+    // ============================================================
 
     private static double stochastic(
-            double[] a,
-            int n
+            List<Candle> c,
+            int period
     ) {
-        n = Math.min(n, a.length);
 
-        double highest =
-                highest(a, n, 0);
+        int n =
+                Math.min(period, c.size());
 
-        double lowest =
-                lowest(a, n, 0);
+        double high =
+                highestHigh(c, n);
 
-        if (highest == lowest) {
+        double low =
+                lowestLow(c, n);
+
+        if (high - low < 0.000001) {
             return 50;
         }
 
-        return (
-                (a[a.length - 1] - lowest) /
-                        (highest - lowest)
-        ) * 100.0;
+        return
+                ((lastCandle(c).close - low)
+                        / (high - low))
+                        * 100.0;
     }
 
-    private static double stochasticPrevious(
-            double[] a,
-            int n
-    ) {
-        if (a.length < n + 2) {
-            return stochastic(a, n);
-        }
+    // ============================================================
+    // MACD SIGNAL
+    // ============================================================
 
-        double[] old =
-                new double[a.length - 1];
-
-        System.arraycopy(
-                a,
-                0,
-                old,
-                0,
-                old.length
-        );
-
-        return stochastic(old, n);
-    }
-
-    private static double bbMiddle(
-            double[] a,
-            int n
-    ) {
-        return sma(a, n);
-    }
-
-    private static double bbDeviation(
-            double[] a,
-            int n
-    ) {
-        n = Math.min(n, a.length);
-
-        double mean =
-                sma(a, n);
-
-        double sum = 0;
-
-        for (int i = a.length - n; i < a.length; i++) {
-            double d =
-                    a[i] - mean;
-            sum += d * d;
-        }
-
-        return Math.sqrt(
-                sum / Math.max(1, n)
-        );
-    }
-
-    private static double bbUpper(
-            double[] a,
-            int n,
-            double multiplier
-    ) {
-        return bbMiddle(a, n) +
-                multiplier *
-                        bbDeviation(a, n);
-    }
-
-    private static double bbLower(
-            double[] a,
-            int n,
-            double multiplier
-    ) {
-        return bbMiddle(a, n) -
-                multiplier *
-                        bbDeviation(a, n);
-    }
-
-    private static double volatility(
-            double[] a,
-            int n
-    ) {
-        return bbDeviation(a, n);
-    }
-
-    private static double volatilityPrevious(
-            double[] a,
-            int n
-    ) {
-        if (a.length < n + 2) {
-            return volatility(a, n);
-        }
-
-        double[] old =
-                new double[a.length - 1];
-
-        System.arraycopy(
-                a,
-                0,
-                old,
-                0,
-                old.length
-        );
-
-        return volatility(old, n);
-    }
-
-    /*
-     * ---------------------------------------------------------
-     * CANDLE HELPERS
-     * ---------------------------------------------------------
-     */
-
-    private static double range(Candle c) {
-        return c.high - c.low;
-    }
-
-    private static double bodyRatio(Candle c) {
-        return c.body() /
-                Math.max(0.0001, c.range());
-    }
-
-    private static double upperWick(
+    private static double emaMacdSignal(
             List<Candle> c
     ) {
-        Candle x = lastCandle(c);
 
-        return x.high -
-                Math.max(x.open, x.close);
-    }
-
-    private static double lowerWick(
-            List<Candle> c
-    ) {
-        Candle x = lastCandle(c);
-
-        return Math.min(x.open, x.close) -
-                x.low;
-    }
-
-    private static boolean consecutiveBullish(
-            List<Candle> c,
-            int n
-    ) {
-        if (c.size() < n) {
-            return false;
-        }
-
-        for (int i = c.size() - n; i < c.size(); i++) {
-            if (!c.get(i).bullish()) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static boolean consecutiveBearish(
-            List<Candle> c,
-            int n
-    ) {
-        if (c.size() < n) {
-            return false;
-        }
-
-        for (int i = c.size() - n; i < c.size(); i++) {
-            if (!c.get(i).bearish()) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static boolean bullishEngulfing(
-            List<Candle> c
-    ) {
-        if (c.size() < 2) {
-            return false;
-        }
-
-        Candle p = c.get(c.size() - 2);
-        Candle n = c.get(c.size() - 1);
-
-        return p.bearish() &&
-                n.bullish() &&
-                n.open <= p.close &&
-                n.close >= p.open;
-    }
-
-    private static boolean bearishEngulfing(
-            List<Candle> c
-    ) {
-        if (c.size() < 2) {
-            return false;
-        }
-
-        Candle p = c.get(c.size() - 2);
-        Candle n = c.get(c.size() - 1);
-
-        return p.bullish() &&
-                n.bearish() &&
-                n.open >= p.close &&
-                n.close <= p.open;
-    }
-
-    private static boolean hammer(
-            List<Candle> c
-    ) {
-        Candle x = lastCandle(c);
-
-        return lowerWick(c) >
-                x.body() * 2.0 &&
-                upperWick(c) <
-                        x.body() * 0.8;
-    }
-
-    private static boolean shootingStar(
-            List<Candle> c
-    ) {
-        Candle x = lastCandle(c);
-
-        return upperWick(c) >
-                x.body() * 2.0 &&
-                lowerWick(c) <
-                        x.body() * 0.8;
-    }
-
-    private static boolean doji(
-            List<Candle> c
-    ) {
-        Candle x = lastCandle(c);
-
-        return bodyRatio(x) < 0.12;
-    }
-
-    private static boolean insideBarBreak(
-            List<Candle> c
-    ) {
-        if (c.size() < 3) {
-            return false;
-        }
-
-        Candle a = c.get(c.size() - 3);
-        Candle b = c.get(c.size() - 2);
-        Candle n = c.get(c.size() - 1);
-
-        boolean inside =
-                b.high <= a.high &&
-                        b.low >= a.low;
-
-        return inside &&
-                (n.close > a.high ||
-                        n.close < a.low);
-    }
-
-    private static boolean higherHigh(
-            List<Candle> c
-    ) {
-        if (c.size() < 4) {
-            return false;
-        }
-
-        return lastCandle(c).high >
-                c.get(c.size() - 3).high;
-    }
-
-    private static boolean lowerHigh(
-            List<Candle> c
-    ) {
-        if (c.size() < 4) {
-            return false;
-        }
-
-        return lastCandle(c).high <
-                c.get(c.size() - 3).high;
-    }
-
-    private static boolean higherLow(
-            List<Candle> c
-    ) {
-        if (c.size() < 4) {
-            return false;
-        }
-
-        return lastCandle(c).low >
-                c.get(c.size() - 3).low;
-    }
-
-    private static boolean lowerLow(
-            List<Candle> c
-    ) {
-        if (c.size() < 4) {
-            return false;
-        }
-
-        return lastCandle(c).low <
-                c.get(c.size() - 3).low;
-    }
-
-    private static double highest(
-            double[] a,
-            int n,
-            int excludeLast
-    ) {
-        int end =
-                a.length - excludeLast;
+        List<Candle> synthetic =
+                new ArrayList<>();
 
         int start =
-                Math.max(0, end - n);
+                Math.max(0, c.size() - 20);
 
-        double value =
-                -Double.MAX_VALUE;
+        for (int i = start; i < c.size(); i++) {
 
-        for (int i = start; i < end; i++) {
-            value =
-                    Math.max(value, a[i]);
+            double macd =
+                    ema(
+                            c.subList(
+                                    0,
+                                    i + 1
+                            ),
+                            12
+                    )
+                    -
+                    ema(
+                            c.subList(
+                                    0,
+                                    i + 1
+                            ),
+                            26
+                    );
+
+            synthetic.add(
+                    new Candle(
+                            macd,
+                            macd,
+                            macd,
+                            macd
+                    )
+            );
         }
 
-        return value;
+        return ema(
+                synthetic,
+                9
+        );
     }
 
-    private static double lowest(
-            double[] a,
-            int n,
-            int excludeLast
-    ) {
-        int end =
-                a.length - excludeLast;
-
-        int start =
-                Math.max(0, end - n);
-
-        double value =
-                Double.MAX_VALUE;
-
-        for (int i = start; i < end; i++) {
-            value =
-                    Math.min(value, a[i]);
-        }
-
-        return value;
-    }
-
-    private static double trendStrength(
-            double[] a,
-            int n
-    ) {
-        return slope(a, n);
-    }
-
-    private static double averageRange(
-            List<Candle> c,
-            int n
-    ) {
-        n = Math.min(n, c.size());
-
-        double sum = 0;
-
-        for (int i = c.size() - n; i < c.size(); i++) {
-            sum += c.get(i).range();
-        }
-
-        return sum / Math.max(1, n);
-    }
-
-    private static double averageTrueRange(
-            List<Candle> c,
-            int n
-    ) {
-        return averageRange(c, n);
-    }
-
-    private static double atr(
-            List<Candle> c,
-            int n
-    ) {
-        return averageTrueRange(c, n);
-    }
-
-    private static double atrPrevious(
-            List<Candle> c,
-            int n
-    ) {
-        if (c.size() < n + 2) {
-            return atr(c, n);
-        }
-
-        double sum = 0;
-        int end = c.size() - 1;
-        int start = Math.max(0, end - n);
-
-        for (int i = start; i < end; i++) {
-            sum += c.get(i).range();
-        }
-
-        return sum / Math.max(1, end - start);
-    }
+    // ============================================================
+    // ATR
+    // ============================================================
 
     private static double trueRange(
             List<Candle> c,
             Candle current
     ) {
+
         if (c.size() < 2) {
             return current.range();
         }
 
+        int index =
+                c.indexOf(current);
+
+        if (index <= 0) {
+            return current.range();
+        }
+
         Candle previous =
-                c.get(c.size() - 2);
+                c.get(index - 1);
 
         double a =
-                current.high - current.low;
+                current.high -
+                        current.low;
 
         double b =
                 Math.abs(
@@ -1524,69 +2348,197 @@ public class Analyzer {
         );
     }
 
-    private static double averageBody(
-            List<Candle> c
+    private static double averageTrueRange(
+            List<Candle> c,
+            int period
     ) {
+
+        if (c.size() < 2) {
+            return lastCandle(c).range();
+        }
+
+        int start =
+                Math.max(
+                        1,
+                        c.size() - period
+                );
+
+        double sum = 0;
+        int count = 0;
+
+        for (int i = start; i < c.size(); i++) {
+
+            Candle current = c.get(i);
+            Candle previous = c.get(i - 1);
+
+            double tr1 =
+                    current.high -
+                            current.low;
+
+            double tr2 =
+                    Math.abs(
+                            current.high -
+                                    previous.close
+                    );
+
+            double tr3 =
+                    Math.abs(
+                            current.low -
+                                    previous.close
+                    );
+
+            double tr =
+                    Math.max(
+                            tr1,
+                            Math.max(tr2, tr3)
+                    );
+
+            sum += tr;
+            count++;
+        }
+
+        if (count == 0) {
+            return lastCandle(c).range();
+        }
+
+        return sum / count;
+    }
+
+    // ============================================================
+    // RANGE
+    // ============================================================
+
+    private static double averageRange(
+            List<Candle> c,
+            int period
+    ) {
+
         int n =
-                Math.min(10, c.size());
+                Math.min(period, c.size());
 
         double sum = 0;
 
         for (int i = c.size() - n; i < c.size(); i++) {
-            sum += c.get(i).body();
+            sum += c.get(i).range();
         }
 
         return sum / Math.max(1, n);
     }
 
-    private static double averageBodyPrevious(
-            List<Candle> c
-    ) {
-        if (c.size() < 12) {
-            return averageBody(c);
-        }
+    // ============================================================
+    // STANDARD DEVIATION
+    // ============================================================
 
-        int end = c.size() - 1;
-        int start = Math.max(0, end - 10);
+    private static double standardDeviation(
+            List<Candle> c,
+            int period
+    ) {
+
+        int n =
+                Math.min(period, c.size());
+
+        double mean =
+                sma(c, n);
 
         double sum = 0;
 
-        for (int i = start; i < end; i++) {
-            sum += c.get(i).body();
+        for (int i = c.size() - n; i < c.size(); i++) {
+
+            double d =
+                    c.get(i).close -
+                            mean;
+
+            sum += d * d;
         }
 
-        return sum / Math.max(1, end - start);
+        return Math.sqrt(
+                sum / Math.max(1, n)
+        );
     }
 
-    private static boolean compositeBullish(
+    // ============================================================
+    // HIGH / LOW
+    // ============================================================
+
+    private static double highestHigh(
             List<Candle> c,
-            double[] close
+            int period
     ) {
-        int score = 0;
 
-        if (ema(close, 9) > ema(close, 21)) score++;
-        if (rsi(close, 14) > 50) score++;
-        if (macd(close, 12, 26, 9) > 0) score++;
-        if (stochastic(close, 14) > 50) score++;
-        if (slope(close, 13) > 0) score++;
-        if (higherLow(c)) score++;
+        int n =
+                Math.min(period, c.size());
 
-        return score >= 4;
+        double high =
+                -Double.MAX_VALUE;
+
+        for (int i = c.size() - n; i < c.size(); i++) {
+            high =
+                    Math.max(
+                            high,
+                            c.get(i).high
+                    );
+        }
+
+        return high;
     }
 
-    private static boolean compositeBearish(
+    private static double lowestLow(
             List<Candle> c,
-            double[] close
+            int period
     ) {
-        int score = 0;
 
-        if (ema(close, 9) < ema(close, 21)) score++;
-        if (rsi(close, 14) < 50) score++;
-        if (macd(close, 12, 26, 9) < 0) score++;
-        if (stochastic(close, 14) < 50) score++;
-        if (slope(close, 13) < 0) score++;
-        if (lowerHigh(c)) score++;
+        int n =
+                Math.min(period, c.size());
 
-        return score >= 4;
+        double low =
+                Double.MAX_VALUE;
+
+        for (int i = c.size() - n; i < c.size(); i++) {
+            low =
+                    Math.min(
+                            low,
+                            c.get(i).low
+                    );
+        }
+
+        return low;
+    }
+
+    // ============================================================
+    // LAST CANDLE
+    // ============================================================
+
+    private static Candle lastCandle(
+            List<Candle> c
+    ) {
+
+        return c.get(c.size() - 1);
+    }
+
+    // ============================================================
+    // COMPARE
+    // ============================================================
+
+    private static int compare(
+            double a,
+            double b
+    ) {
+
+        double difference = a - b;
+
+        double scale =
+                Math.max(
+                        0.000001,
+                        Math.abs(a) +
+                                Math.abs(b)
+                );
+
+        double normalized =
+                difference / scale;
+
+        if (normalized > 0.003) return 1;
+        if (normalized < -0.003) return -1;
+
+        return 0;
     }
 }
