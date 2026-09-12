@@ -14,7 +14,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -26,8 +25,6 @@ public class MainActivity extends Activity {
     private static final int NOTIFICATION_REQUEST = 502;
 
     private TextView statusText;
-    private TextView infoText;
-
     private Button overlayButton;
     private Button captureButton;
     private Button timeframeButton;
@@ -51,94 +48,375 @@ public class MainActivity extends Activity {
         requestNotificationPermissionIfNeeded();
     }
 
+    private void buildUI() {
+
+        LinearLayout root =
+                new LinearLayout(this);
+
+        root.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        root.setGravity(
+                Gravity.CENTER_HORIZONTAL
+        );
+
+        root.setPadding(
+                28,
+                45,
+                28,
+                30
+        );
+
+        root.setBackgroundColor(
+                Color.rgb(8, 12, 20)
+        );
+
+        TextView title =
+                text(
+                        "MD JIBON",
+                        30,
+                        Color.rgb(40, 220, 255)
+                );
+
+        title.setGravity(
+                Gravity.CENTER
+        );
+
+        root.addView(
+                title,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                )
+        );
+
+        TextView subtitle =
+                text(
+                        "SCREEN SCANNER",
+                        17,
+                        Color.WHITE
+                );
+
+        subtitle.setGravity(
+                Gravity.CENTER
+        );
+
+        root.addView(
+                subtitle,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                )
+        );
+
+        statusText =
+                text(
+                        "READY",
+                        17,
+                        Color.LTGRAY
+                );
+
+        statusText.setGravity(
+                Gravity.CENTER
+        );
+
+        statusText.setPadding(
+                0,
+                25,
+                0,
+                25
+        );
+
+        root.addView(
+                statusText,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                )
+        );
+
+        overlayButton =
+                new Button(this);
+
+        overlayButton.setText(
+                "FLOATING SCANNER ON"
+        );
+
+        overlayButton.setAllCaps(false);
+
+        overlayButton.setTextSize(16);
+
+        overlayButton.setOnClickListener(
+                v -> toggleOverlay()
+        );
+
+        root.addView(
+                overlayButton,
+                buttonParams()
+        );
+
+        captureButton =
+                new Button(this);
+
+        captureButton.setText(
+                "SCREEN CAPTURE ON"
+        );
+
+        captureButton.setAllCaps(false);
+
+        captureButton.setTextSize(16);
+
+        captureButton.setOnClickListener(
+                v -> toggleCapture()
+        );
+
+        root.addView(
+                captureButton,
+                buttonParams()
+        );
+
+        timeframeButton =
+                new Button(this);
+
+        timeframeButton.setText(
+                "TIMEFRAME: " +
+                        getTimeframe()
+        );
+
+        timeframeButton.setAllCaps(false);
+
+        timeframeButton.setTextSize(16);
+
+        timeframeButton.setOnClickListener(
+                v -> cycleTimeframe()
+        );
+
+        root.addView(
+                timeframeButton,
+                buttonParams()
+        );
+
+        TextView info =
+                text(
+                        "Quotex/Cortex chart খুলে\n" +
+                        "Screen Capture ON করুন।\n\n" +
+                        "তারপর Floating Scanner icon-এ চাপুন।\n\n" +
+                        "Icon ধরে drag করে যেকোনো জায়গায় নেওয়া যাবে।",
+                        14,
+                        Color.LTGRAY
+                );
+
+        info.setGravity(
+                Gravity.CENTER
+        );
+
+        info.setPadding(
+                0,
+                35,
+                0,
+                15
+        );
+
+        root.addView(
+                info,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                )
+        );
+
+        TextView logic =
+                text(
+                        "100 LOGIC CHECKS",
+                        13,
+                        Color.GRAY
+                );
+
+        logic.setGravity(
+                Gravity.CENTER
+        );
+
+        root.addView(
+                logic,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                )
+        );
+
+        setContentView(root);
+    }
+
+    private LinearLayout.LayoutParams buttonParams() {
+
+        LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        60
+                );
+
+        params.setMargins(
+                0,
+                8,
+                0,
+                8
+        );
+
+        return params;
+    }
+
+    private TextView text(
+            String value,
+            float size,
+            int color
+    ) {
+
+        TextView t =
+                new TextView(this);
+
+        t.setText(value);
+        t.setTextSize(size);
+        t.setTextColor(color);
+
+        t.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
+
+        t.setPadding(
+                0,
+                8,
+                0,
+                8
+        );
+
+        return t;
+    }
+
     private void registerScannerReceiver() {
 
-        receiver = new BroadcastReceiver() {
+        receiver =
+                new BroadcastReceiver() {
 
-            @Override
-            public void onReceive(
-                    Context context,
-                    Intent intent
-            ) {
+                    @Override
+                    public void onReceive(
+                            Context context,
+                            Intent intent
+                    ) {
 
-                if (intent == null) {
-                    return;
-                }
+                        if (intent == null) {
+                            return;
+                        }
 
-                String action = intent.getAction();
+                        String action =
+                                intent.getAction();
 
-                if (ScreenCaptureService.ACTION_RESULT.equals(action)) {
+                        if (ScreenCaptureService
+                                .ACTION_RESULT
+                                .equals(action)) {
 
-                    String signal =
-                            intent.getStringExtra("signal");
+                            String signal =
+                                    intent.getStringExtra(
+                                            "signal"
+                                    );
 
-                    int confidence =
-                            intent.getIntExtra(
-                                    "confidence",
-                                    0
+                            int confidence =
+                                    intent.getIntExtra(
+                                            "confidence",
+                                            0
+                                    );
+
+                            if (signal == null) {
+                                signal = "NO TRADE";
+                            }
+
+                            if ("UP".equals(signal)) {
+
+                                statusText.setText(
+                                        "SCAN COMPLETE • UP " +
+                                                confidence +
+                                                "%"
+                                );
+
+                                statusText.setTextColor(
+                                        Color.rgb(
+                                                30,
+                                                235,
+                                                135
+                                        )
+                                );
+
+                            } else if ("DOWN".equals(signal)) {
+
+                                statusText.setText(
+                                        "SCAN COMPLETE • DOWN " +
+                                                confidence +
+                                                "%"
+                                );
+
+                                statusText.setTextColor(
+                                        Color.rgb(
+                                                255,
+                                                70,
+                                                85
+                                        )
+                                );
+
+                            } else {
+
+                                statusText.setText(
+                                        "SCAN COMPLETE • WAIT"
+                                );
+
+                                statusText.setTextColor(
+                                        Color.WHITE
+                                );
+                            }
+                        }
+
+                        if (ScreenCaptureService
+                                .ACTION_CAPTURE_STATE
+                                .equals(action)) {
+
+                            boolean active =
+                                    intent.getBooleanExtra(
+                                            "active",
+                                            false
+                                    );
+
+                            updateCaptureButton(
+                                    active
+                            );
+                        }
+
+                        if (ScreenCaptureService
+                                .ACTION_ERROR
+                                .equals(action)) {
+
+                            String message =
+                                    intent.getStringExtra(
+                                            "message"
+                                    );
+
+                            if (message == null) {
+                                message =
+                                        "Screen Capture error";
+                            }
+
+                            statusText.setText(
+                                    message
                             );
 
-                    if (signal == null) {
-                        signal = "NO TRADE";
-                    }
-
-                    if ("UP".equals(signal)) {
-
-                        statusText.setText(
-                                "SCAN COMPLETE • UP " +
-                                        confidence +
-                                        "%"
-                        );
-
-                        statusText.setTextColor(
-                                Color.rgb(
-                                        30,
-                                        235,
-                                        135
-                                )
-                        );
-
-                    } else if ("DOWN".equals(signal)) {
-
-                        statusText.setText(
-                                "SCAN COMPLETE • DOWN " +
-                                        confidence +
-                                        "%"
-                        );
-
-                        statusText.setTextColor(
-                                Color.rgb(
-                                        255,
-                                        70,
-                                        85
-                                )
-                        );
-
-                    } else {
-
-                        statusText.setText(
-                                "SCAN COMPLETE • WAIT"
-                        );
-
-                        statusText.setTextColor(
-                                Color.WHITE
-                        );
-                    }
-                }
-
-                if (ScreenCaptureService.ACTION_CAPTURE_STATE
-                        .equals(action)) {
-
-                    boolean active =
-                            intent.getBooleanExtra(
-                                    "active",
-                                    false
+                            statusText.setTextColor(
+                                    Color.rgb(
+                                            255,
+                                            70,
+                                            85
+                                    )
                             );
-
-                    updateCaptureButton(active);
-                }
-            }
-        };
+                        }
+                    }
+                };
 
         IntentFilter filter =
                 new IntentFilter();
@@ -149,6 +427,10 @@ public class MainActivity extends Activity {
 
         filter.addAction(
                 ScreenCaptureService.ACTION_CAPTURE_STATE
+        );
+
+        filter.addAction(
+                ScreenCaptureService.ACTION_ERROR
         );
 
         if (Build.VERSION.SDK_INT >= 33) {
@@ -183,354 +465,6 @@ public class MainActivity extends Activity {
             );
         }
     }
-
-    private void buildUI() {
-
-        LinearLayout root =
-                new LinearLayout(this);
-
-        root.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
-        root.setGravity(
-                Gravity.CENTER_HORIZONTAL
-        );
-
-        root.setPadding(
-                28,
-                45,
-                28,
-                30
-        );
-
-        root.setBackgroundColor(
-                Color.rgb(
-                        8,
-                        12,
-                        20
-                )
-        );
-
-        /*
-         * =========================================================
-         * TITLE
-         * =========================================================
-         */
-
-        TextView title =
-                text(
-                        "MD JIBON",
-                        30,
-                        Color.rgb(
-                                40,
-                                220,
-                                255
-                        )
-                );
-
-        title.setGravity(
-                Gravity.CENTER
-        );
-
-        root.addView(
-                title,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
-        );
-
-        /*
-         * =========================================================
-         * SUBTITLE
-         * =========================================================
-         */
-
-        TextView subtitle =
-                text(
-                        "SCREEN SCANNER",
-                        17,
-                        Color.WHITE
-                );
-
-        subtitle.setGravity(
-                Gravity.CENTER
-        );
-
-        subtitle.setPadding(
-                0,
-                5,
-                0,
-                5
-        );
-
-        root.addView(
-                subtitle,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
-        );
-
-        /*
-         * =========================================================
-         * STATUS
-         * =========================================================
-         */
-
-        statusText =
-                text(
-                        "READY",
-                        17,
-                        Color.LTGRAY
-                );
-
-        statusText.setGravity(
-                Gravity.CENTER
-        );
-
-        statusText.setPadding(
-                0,
-                25,
-                0,
-                25
-        );
-
-        root.addView(
-                statusText,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
-        );
-
-        /*
-         * =========================================================
-         * FLOATING SCANNER BUTTON
-         * =========================================================
-         */
-
-        overlayButton =
-                new Button(this);
-
-        overlayButton.setText(
-                "FLOATING SCANNER ON"
-        );
-
-        overlayButton.setAllCaps(false);
-
-        overlayButton.setTextSize(16);
-
-        overlayButton.setOnClickListener(
-                v -> toggleOverlay()
-        );
-
-        LinearLayout.LayoutParams overlayParams =
-                new LinearLayout.LayoutParams(
-                        -1,
-                        60
-                );
-
-        overlayParams.setMargins(
-                0,
-                8,
-                0,
-                8
-        );
-
-        root.addView(
-                overlayButton,
-                overlayParams
-        );
-
-        /*
-         * =========================================================
-         * SCREEN CAPTURE BUTTON
-         * =========================================================
-         */
-
-        captureButton =
-                new Button(this);
-
-        captureButton.setText(
-                "SCREEN CAPTURE ON"
-        );
-
-        captureButton.setAllCaps(false);
-
-        captureButton.setTextSize(16);
-
-        captureButton.setOnClickListener(
-                v -> toggleCapture()
-        );
-
-        LinearLayout.LayoutParams captureParams =
-                new LinearLayout.LayoutParams(
-                        -1,
-                        60
-                );
-
-        captureParams.setMargins(
-                0,
-                8,
-                0,
-                8
-        );
-
-        root.addView(
-                captureButton,
-                captureParams
-        );
-
-        /*
-         * =========================================================
-         * TIMEFRAME BUTTON
-         * =========================================================
-         */
-
-        timeframeButton =
-                new Button(this);
-
-        timeframeButton.setText(
-                "TIMEFRAME: " +
-                        getTimeframe()
-        );
-
-        timeframeButton.setAllCaps(false);
-
-        timeframeButton.setTextSize(16);
-
-        timeframeButton.setOnClickListener(
-                v -> cycleTimeframe()
-        );
-
-        LinearLayout.LayoutParams timeframeParams =
-                new LinearLayout.LayoutParams(
-                        -1,
-                        60
-                );
-
-        timeframeParams.setMargins(
-                0,
-                8,
-                0,
-                8
-        );
-
-        root.addView(
-                timeframeButton,
-                timeframeParams
-        );
-
-        /*
-         * =========================================================
-         * INFORMATION
-         * =========================================================
-         */
-
-        infoText =
-                text(
-                        "Quotex/Cortex chart খুলে\n" +
-                                "Screen Capture ON করুন।\n\n" +
-                                "তারপর Floating Scanner icon-এ চাপুন।\n\n" +
-                                "Icon ধরে drag করে যেকোনো জায়গায় নেওয়া যাবে।",
-                        14,
-                        Color.LTGRAY
-                );
-
-        infoText.setGravity(
-                Gravity.CENTER
-        );
-
-        infoText.setPadding(
-                0,
-                35,
-                0,
-                15
-        );
-
-        root.addView(
-                infoText,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
-        );
-
-        /*
-         * =========================================================
-         * LOGIC INFORMATION
-         * =========================================================
-         */
-
-        TextView logicText =
-                text(
-                        "100 LOGIC CHECKS",
-                        13,
-                        Color.GRAY
-                );
-
-        logicText.setGravity(
-                Gravity.CENTER
-        );
-
-        logicText.setPadding(
-                0,
-                10,
-                0,
-                10
-        );
-
-        root.addView(
-                logicText,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
-        );
-
-        /*
-         * IMPORTANT:
-         * এখানে কোনো Radar ImageView নেই।
-         * কোনো বড় Scanner graphic নেই।
-         */
-
-        setContentView(root);
-    }
-
-    private TextView text(
-            String value,
-            float size,
-            int color
-    ) {
-
-        TextView t =
-                new TextView(this);
-
-        t.setText(value);
-        t.setTextSize(size);
-        t.setTextColor(color);
-
-        t.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
-
-        t.setPadding(
-                0,
-                8,
-                0,
-                8
-        );
-
-        return t;
-    }
-
-    /*
-     * =============================================================
-     * FLOATING SCANNER
-     * =============================================================
-     */
 
     private void toggleOverlay() {
 
@@ -620,6 +554,18 @@ public class MainActivity extends Activity {
 
             } catch (Exception e) {
 
+                statusText.setText(
+                        "FLOATING SCANNER START FAILED"
+                );
+
+                statusText.setTextColor(
+                        Color.rgb(
+                                255,
+                                70,
+                                85
+                        )
+                );
+
                 Toast.makeText(
                         this,
                         "Floating Scanner চালু করা যায়নি",
@@ -629,15 +575,10 @@ public class MainActivity extends Activity {
         }
     }
 
-    /*
-     * =============================================================
-     * SCREEN CAPTURE
-     * =============================================================
-     */
-
     private void toggleCapture() {
 
-        if (ScreenCaptureService.isCaptureActive()) {
+        if (ScreenCaptureService
+                .isCaptureActive()) {
 
             Intent stopIntent =
                     new Intent(
@@ -686,17 +627,28 @@ public class MainActivity extends Activity {
                 Color.LTGRAY
         );
 
-        startActivityForResult(
-                manager.createScreenCaptureIntent(),
-                CAPTURE_REQUEST
-        );
-    }
+        try {
 
-    /*
-     * =============================================================
-     * CAPTURE STATE
-     * =============================================================
-     */
+            startActivityForResult(
+                    manager.createScreenCaptureIntent(),
+                    CAPTURE_REQUEST
+            );
+
+        } catch (Exception e) {
+
+            statusText.setText(
+                    "SCREEN CAPTURE PERMISSION FAILED"
+            );
+
+            statusText.setTextColor(
+                    Color.rgb(
+                            255,
+                            70,
+                            85
+                    )
+            );
+        }
+    }
 
     private void updateCaptureButton(
             boolean active
@@ -731,12 +683,6 @@ public class MainActivity extends Activity {
             );
         }
     }
-
-    /*
-     * =============================================================
-     * TIMEFRAME
-     * =============================================================
-     */
 
     private String getTimeframe() {
 
@@ -789,13 +735,10 @@ public class MainActivity extends Activity {
                 )
                 .apply();
 
-        if (timeframeButton != null) {
-
-            timeframeButton.setText(
-                    "TIMEFRAME: " +
-                            next
-            );
-        }
+        timeframeButton.setText(
+                "TIMEFRAME: " +
+                        next
+        );
 
         Toast.makeText(
                 this,
@@ -803,12 +746,6 @@ public class MainActivity extends Activity {
                 Toast.LENGTH_SHORT
         ).show();
     }
-
-    /*
-     * =============================================================
-     * MEDIA PROJECTION RESULT
-     * =============================================================
-     */
 
     @Override
     protected void onActivityResult(
@@ -903,14 +840,14 @@ public class MainActivity extends Activity {
                             85
                     )
             );
+
+            Toast.makeText(
+                    this,
+                    "Screen Capture service start হয়নি",
+                    Toast.LENGTH_LONG
+            ).show();
         }
     }
-
-    /*
-     * =============================================================
-     * RESUME
-     * =============================================================
-     */
 
     @Override
     protected void onResume() {
@@ -926,18 +863,6 @@ public class MainActivity extends Activity {
                         "FLOATING SCANNER OFF"
                 );
 
-                statusText.setText(
-                        "FLOATING SCANNER ON"
-                );
-
-                statusText.setTextColor(
-                        Color.rgb(
-                                40,
-                                220,
-                                255
-                        )
-                );
-
             } else {
 
                 overlayButton.setText(
@@ -947,7 +872,8 @@ public class MainActivity extends Activity {
         }
 
         updateCaptureButton(
-                ScreenCaptureService.isCaptureActive()
+                ScreenCaptureService
+                        .isCaptureActive()
         );
 
         if (timeframeButton != null) {
@@ -958,12 +884,6 @@ public class MainActivity extends Activity {
             );
         }
     }
-
-    /*
-     * =============================================================
-     * DESTROY
-     * =============================================================
-     */
 
     @Override
     protected void onDestroy() {
