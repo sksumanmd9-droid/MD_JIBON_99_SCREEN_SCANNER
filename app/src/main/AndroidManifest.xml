@@ -3,23 +3,18 @@
 <manifest
     xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Floating overlay -->
     <uses-permission
         android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- Foreground services -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE" />
 
-    <!-- Screen capture -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
-    <!-- Floating scanner foreground service -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
-    <!-- Android notification -->
     <uses-permission
         android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -36,19 +31,22 @@
             android:exported="true">
 
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+
+                <action
+                    android:name="android.intent.action.MAIN" />
+
+                <category
+                    android:name="android.intent.category.LAUNCHER" />
+
             </intent-filter>
 
         </activity>
 
-        <!-- Screen capture service -->
         <service
             android:name=".ScreenCaptureService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
-        <!-- Floating scanner service -->
         <service
             android:name=".FloatingScannerService"
             android:exported="false"
