@@ -8,7 +8,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.ServiceInfo;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -30,11 +29,9 @@ import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 
-public class FloatingScannerService
-        extends Service {
+public class FloatingScannerService extends Service {
 
-    private static volatile boolean running =
-            false;
+    private static volatile boolean running = false;
 
     private WindowManager windowManager;
 
@@ -52,11 +49,9 @@ public class FloatingScannerService
     private final Handler mainHandler =
             new Handler();
 
-    private static final int
-            NOTIFICATION_ID = 2001;
+    private static final int NOTIFICATION_ID = 2001;
 
-    private static final String
-            CHANNEL_ID =
+    private static final String CHANNEL_ID =
             "md_jibon_floating";
 
     public static boolean isRunning() {
@@ -67,6 +62,8 @@ public class FloatingScannerService
     public void onCreate() {
 
         super.onCreate();
+
+        running = true;
 
         windowManager =
                 (WindowManager)
@@ -83,7 +80,7 @@ public class FloatingScannerService
                 startForeground(
                         NOTIFICATION_ID,
                         createNotification(),
-                        ServiceInfo
+                        android.content.pm.ServiceInfo
                                 .FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                 );
 
@@ -99,7 +96,6 @@ public class FloatingScannerService
 
             running = false;
             stopSelf();
-
             return;
         }
 
@@ -117,8 +113,6 @@ public class FloatingScannerService
             return;
         }
 
-        running = true;
-
         registerScannerReceiver();
 
         createLogo();
@@ -134,8 +128,7 @@ public class FloatingScannerService
                 new NotificationChannel(
                         CHANNEL_ID,
                         "MD JIBON Floating Scanner",
-                        NotificationManager
-                                .IMPORTANCE_LOW
+                        NotificationManager.IMPORTANCE_LOW
                 );
 
         NotificationManager manager =
@@ -167,8 +160,7 @@ public class FloatingScannerService
                             "Floating scanner is active"
                     )
                     .setSmallIcon(
-                            android.R.drawable
-                                    .ic_menu_search
+                            android.R.drawable.ic_menu_search
                     )
                     .setOngoing(true)
                     .build();
@@ -182,8 +174,7 @@ public class FloatingScannerService
                         "Floating scanner is active"
                 )
                 .setSmallIcon(
-                        android.R.drawable
-                                .ic_menu_search
+                        android.R.drawable.ic_menu_search
                 )
                 .setOngoing(true)
                 .build();
@@ -196,14 +187,19 @@ public class FloatingScannerService
             int startId
     ) {
 
+        /*
+         * Service নিজে থেকে বন্ধ হবে না।
+         * শুধুমাত্র MainActivity থেকে stopService()
+         * করা হলে বন্ধ হবে।
+         */
+
         if (intent != null &&
-                ScreenCaptureService
-                        .ACTION_STOP
-                        .equals(
-                                intent.getAction()
-                        )) {
+                ScreenCaptureService.ACTION_STOP.equals(
+                        intent.getAction()
+                )) {
 
             stopSelf();
+            return START_NOT_STICKY;
         }
 
         return START_STICKY;
@@ -227,8 +223,7 @@ public class FloatingScannerService
                         String action =
                                 intent.getAction();
 
-                        if (ScreenCaptureService
-                                .ACTION_PROGRESS
+                        if (ScreenCaptureService.ACTION_PROGRESS
                                 .equals(action)) {
 
                             int progress =
@@ -247,8 +242,7 @@ public class FloatingScannerService
                             return;
                         }
 
-                        if (ScreenCaptureService
-                                .ACTION_RESULT
+                        if (ScreenCaptureService.ACTION_RESULT
                                 .equals(action)) {
 
                             String signal =
@@ -270,8 +264,7 @@ public class FloatingScannerService
                             return;
                         }
 
-                        if (ScreenCaptureService
-                                .ACTION_ERROR
+                        if (ScreenCaptureService.ACTION_ERROR
                                 .equals(action)) {
 
                             scanRunning = false;
@@ -281,10 +274,7 @@ public class FloatingScannerService
                                 scanView.stopAnimation();
                             }
 
-                            removeView(
-                                    scanView
-                            );
-
+                            removeView(scanView);
                             scanView = null;
 
                             createLogo();
@@ -295,7 +285,6 @@ public class FloatingScannerService
                                     );
 
                             if (message == null) {
-
                                 message =
                                         "Scanner error";
                             }
@@ -353,8 +342,7 @@ public class FloatingScannerService
                 );
     }
 
-    private WindowManager.LayoutParams
-    overlayParams() {
+    private WindowManager.LayoutParams overlayParams() {
 
         int type;
 
@@ -373,19 +361,15 @@ public class FloatingScannerService
 
         WindowManager.LayoutParams params =
                 new WindowManager.LayoutParams(
-                        WindowManager.LayoutParams
-                                .WRAP_CONTENT,
-                        WindowManager.LayoutParams
-                                .WRAP_CONTENT,
+                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        WindowManager.LayoutParams.WRAP_CONTENT,
                         type,
-                        WindowManager.LayoutParams
-                                .FLAG_NOT_FOCUSABLE,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                         PixelFormat.TRANSLUCENT
                 );
 
         params.gravity =
-                Gravity.TOP |
-                        Gravity.START;
+                Gravity.TOP | Gravity.START;
 
         params.x = savedX;
         params.y = savedY;
@@ -406,12 +390,11 @@ public class FloatingScannerService
                 new ImageView(this);
 
         int drawableId =
-                getResources()
-                        .getIdentifier(
-                                "md_jibon_logo",
-                                "drawable",
-                                getPackageName()
-                        );
+                getResources().getIdentifier(
+                        "md_jibon_logo",
+                        "drawable",
+                        getPackageName()
+                );
 
         if (drawableId != 0) {
 
@@ -422,8 +405,7 @@ public class FloatingScannerService
         } else {
 
             image.setImageResource(
-                    android.R.drawable
-                            .ic_menu_search
+                    android.R.drawable.ic_menu_search
             );
         }
 
@@ -431,12 +413,10 @@ public class FloatingScannerService
                 ImageView.ScaleType.CENTER_INSIDE
         );
 
-        int size =
-                dp(44);
+        int size = dp(44);
 
         image.setLayoutParams(
-                new android.view.ViewGroup
-                        .LayoutParams(
+                new android.view.ViewGroup.LayoutParams(
                         size,
                         size
                 )
@@ -444,8 +424,7 @@ public class FloatingScannerService
 
         logoView = image;
 
-        final WindowManager.LayoutParams
-                params =
+        final WindowManager.LayoutParams params =
                 overlayParams();
 
         image.setOnTouchListener(
@@ -465,9 +444,7 @@ public class FloatingScannerService
                             MotionEvent event
                     ) {
 
-                        switch (
-                                event.getAction()
-                        ) {
+                        switch (event.getAction()) {
 
                             case MotionEvent.ACTION_DOWN:
 
@@ -479,11 +456,8 @@ public class FloatingScannerService
                                         (int)
                                                 event.getRawY();
 
-                                startX =
-                                        params.x;
-
-                                startY =
-                                        params.y;
+                                startX = params.x;
+                                startY = params.y;
 
                                 downTime =
                                         System.currentTimeMillis();
@@ -510,11 +484,10 @@ public class FloatingScannerService
 
                                 try {
 
-                                    windowManager
-                                            .updateViewLayout(
-                                                    image,
-                                                    params
-                                            );
+                                    windowManager.updateViewLayout(
+                                            image,
+                                            params
+                                    );
 
                                 } catch (Exception ignored) {
                                 }
@@ -523,11 +496,8 @@ public class FloatingScannerService
 
                             case MotionEvent.ACTION_UP:
 
-                                savedX =
-                                        params.x;
-
-                                savedY =
-                                        params.y;
+                                savedX = params.x;
+                                savedY = params.y;
 
                                 long duration =
                                         System.currentTimeMillis()
@@ -579,8 +549,7 @@ public class FloatingScannerService
             return;
         }
 
-        if (!ScreenCaptureService
-                .isCaptureActive()) {
+        if (!ScreenCaptureService.isCaptureActive()) {
 
             Toast.makeText(
                     this,
@@ -616,13 +585,7 @@ public class FloatingScannerService
 
             scanRunning = false;
 
-            if (scanView != null) {
-
-                scanView.stopAnimation();
-            }
-
             removeView(scanView);
-
             scanView = null;
 
             createLogo();
@@ -648,12 +611,10 @@ public class FloatingScannerService
                 new WindowManager.LayoutParams();
 
         params.width =
-                WindowManager.LayoutParams
-                        .MATCH_PARENT;
+                WindowManager.LayoutParams.MATCH_PARENT;
 
         params.height =
-                WindowManager.LayoutParams
-                        .MATCH_PARENT;
+                WindowManager.LayoutParams.MATCH_PARENT;
 
         if (Build.VERSION.SDK_INT >= 26) {
 
@@ -664,23 +625,18 @@ public class FloatingScannerService
         } else {
 
             params.type =
-                    WindowManager.LayoutParams
-                            .TYPE_PHONE;
+                    WindowManager.LayoutParams.TYPE_PHONE;
         }
 
         params.gravity =
-                Gravity.TOP |
-                        Gravity.START;
+                Gravity.TOP | Gravity.START;
 
         params.flags =
-                WindowManager.LayoutParams
-                        .FLAG_NOT_FOCUSABLE
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         |
-                        WindowManager.LayoutParams
-                                .FLAG_NOT_TOUCHABLE
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         |
-                        WindowManager.LayoutParams
-                                .FLAG_LAYOUT_IN_SCREEN;
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
 
         params.format =
                 PixelFormat.TRANSLUCENT;
@@ -701,24 +657,18 @@ public class FloatingScannerService
         }
     }
 
-    private class ScanAnimationView
-            extends View {
+    private class ScanAnimationView extends View {
 
         private final Paint paint =
-                new Paint(
-                        Paint.ANTI_ALIAS_FLAG
-                );
+                new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        private float scanY =
-                -dp(110);
+        private float scanY = -dp(110);
 
         private int progress = 0;
 
-        private boolean animationRunning =
-                true;
+        private boolean animationRunning = true;
 
-        private final Runnable
-                animationRunnable =
+        private final Runnable animationRunnable =
                 new Runnable() {
 
                     @Override
@@ -731,9 +681,7 @@ public class FloatingScannerService
                         scanY += dp(8);
 
                         if (scanY > getHeight()) {
-
-                            scanY =
-                                    -dp(110);
+                            scanY = -dp(110);
                         }
 
                         invalidate();
@@ -745,9 +693,7 @@ public class FloatingScannerService
                     }
                 };
 
-        ScanAnimationView(
-                Context context
-        ) {
+        ScanAnimationView(Context context) {
 
             super(context);
 
@@ -756,14 +702,10 @@ public class FloatingScannerService
                     null
             );
 
-            post(
-                    animationRunnable
-            );
+            post(animationRunnable);
         }
 
-        void setProgress(
-                int value
-        ) {
+        void setProgress(int value) {
 
             progress =
                     Math.max(
@@ -787,32 +729,20 @@ public class FloatingScannerService
         }
 
         @Override
-        protected void onDraw(
-                Canvas canvas
-        ) {
+        protected void onDraw(Canvas canvas) {
 
             super.onDraw(canvas);
 
-            int width =
-                    getWidth();
+            int width = getWidth();
+            int height = getHeight();
 
-            int height =
-                    getHeight();
+            float bandHeight = dp(110);
 
-            float bandHeight =
-                    dp(110);
-
-            float top =
-                    scanY;
-
-            float bottom =
-                    scanY +
-                            bandHeight;
+            float top = scanY;
+            float bottom = scanY + bandHeight;
 
             Paint glow =
-                    new Paint(
-                            Paint.ANTI_ALIAS_FLAG
-                    );
+                    new Paint(Paint.ANTI_ALIAS_FLAG);
 
             glow.setColor(
                     Color.argb(
@@ -832,9 +762,7 @@ public class FloatingScannerService
             );
 
             Paint middle =
-                    new Paint(
-                            Paint.ANTI_ALIAS_FLAG
-                    );
+                    new Paint(Paint.ANTI_ALIAS_FLAG);
 
             middle.setColor(
                     Color.argb(
@@ -846,12 +774,10 @@ public class FloatingScannerService
             );
 
             float middleTop =
-                    scanY +
-                            dp(38);
+                    scanY + dp(38);
 
             float middleBottom =
-                    scanY +
-                            dp(72);
+                    scanY + dp(72);
 
             canvas.drawRect(
                     0,
@@ -862,9 +788,7 @@ public class FloatingScannerService
             );
 
             Paint edge =
-                    new Paint(
-                            Paint.ANTI_ALIAS_FLAG
-                    );
+                    new Paint(Paint.ANTI_ALIAS_FLAG);
 
             edge.setColor(
                     Color.argb(
@@ -875,13 +799,10 @@ public class FloatingScannerService
                     )
             );
 
-            edge.setStrokeWidth(
-                    dp(2)
-            );
+            edge.setStrokeWidth(dp(2));
 
             float edgeY =
-                    scanY +
-                            dp(55);
+                    scanY + dp(55);
 
             canvas.drawLine(
                     0,
@@ -895,9 +816,7 @@ public class FloatingScannerService
                     progress < 100) {
 
                 Paint progressPaint =
-                        new Paint(
-                                Paint.ANTI_ALIAS_FLAG
-                        );
+                        new Paint(Paint.ANTI_ALIAS_FLAG);
 
                 progressPaint.setColor(
                         Color.argb(
@@ -1003,30 +922,23 @@ public class FloatingScannerService
                 )
         );
 
-        container.setBackground(
-                background
-        );
+        container.setBackground(background);
 
         ImageView icon =
                 new ImageView(this);
 
         int drawableId =
-                getResources()
-                        .getIdentifier(
-                                "md_jibon_logo",
-                                "drawable",
-                                getPackageName()
-                        );
+                getResources().getIdentifier(
+                        "md_jibon_logo",
+                        "drawable",
+                        getPackageName()
+                );
 
         if (drawableId != 0) {
-
-            icon.setImageResource(
-                    drawableId
-            );
+            icon.setImageResource(drawableId);
         }
 
-        LinearLayout.LayoutParams
-                iconParams =
+        LinearLayout.LayoutParams iconParams =
                 new LinearLayout.LayoutParams(
                         dp(30),
                         dp(30)
@@ -1062,11 +974,7 @@ public class FloatingScannerService
             );
 
             resultText.setTextColor(
-                    Color.rgb(
-                            30,
-                            235,
-                            135
-                    )
+                    Color.rgb(30, 235, 135)
             );
 
         } else if ("DOWN".equals(signal)) {
@@ -1078,18 +986,12 @@ public class FloatingScannerService
             );
 
             resultText.setTextColor(
-                    Color.rgb(
-                            255,
-                            70,
-                            85
-                    )
+                    Color.rgb(255, 70, 85)
             );
 
         } else {
 
-            resultText.setText(
-                    "WAIT"
-            );
+            resultText.setText("WAIT");
 
             resultText.setTextColor(
                     Color.WHITE
@@ -1108,17 +1010,13 @@ public class FloatingScannerService
                 )
         );
 
-        resultView =
-                container;
+        resultView = container;
 
         WindowManager.LayoutParams params =
                 new WindowManager.LayoutParams();
 
-        params.width =
-                dp(145);
-
-        params.height =
-                dp(50);
+        params.width = dp(145);
+        params.height = dp(50);
 
         if (Build.VERSION.SDK_INT >= 26) {
 
@@ -1129,18 +1027,14 @@ public class FloatingScannerService
         } else {
 
             params.type =
-                    WindowManager.LayoutParams
-                            .TYPE_PHONE;
+                    WindowManager.LayoutParams.TYPE_PHONE;
         }
 
         params.gravity =
-                Gravity.TOP |
-                        Gravity.START;
+                Gravity.TOP | Gravity.START;
 
         params.x = savedX;
-
-        params.y =
-                savedY + dp(50);
+        params.y = savedY + dp(50);
 
         params.flags =
                 WindowManager.LayoutParams
@@ -1168,9 +1062,7 @@ public class FloatingScannerService
         mainHandler.postDelayed(
                 () -> {
 
-                    removeView(
-                            resultView
-                    );
+                    removeView(resultView);
 
                     resultView = null;
 
@@ -1181,21 +1073,16 @@ public class FloatingScannerService
         );
     }
 
-    private void removeView(
-            View view
-    ) {
+    private void removeView(View view) {
 
         if (view == null ||
                 windowManager == null) {
-
             return;
         }
 
         try {
 
-            windowManager.removeView(
-                    view
-            );
+            windowManager.removeView(view);
 
         } catch (Exception ignored) {
         }
@@ -1218,7 +1105,6 @@ public class FloatingScannerService
         }
 
         if (scanView != null) {
-
             scanView.stopAnimation();
         }
 
@@ -1230,19 +1116,14 @@ public class FloatingScannerService
         scanView = null;
         resultView = null;
 
-        mainHandler.removeCallbacksAndMessages(
-                null
-        );
+        mainHandler.removeCallbacksAndMessages(null);
 
         super.onDestroy();
     }
 
     @Nullable
     @Override
-    public IBinder onBind(
-            Intent intent
-    ) {
-
+    public IBinder onBind(Intent intent) {
         return null;
     }
 }
