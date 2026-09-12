@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ServiceInfo;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -67,8 +68,6 @@ public class FloatingScannerService
 
         super.onCreate();
 
-        running = true;
-
         windowManager =
                 (WindowManager)
                         getSystemService(
@@ -79,12 +78,12 @@ public class FloatingScannerService
 
         try {
 
-            if (Build.VERSION.SDK_INT >= 29) {
+            if (Build.VERSION.SDK_INT >= 34) {
 
                 startForeground(
                         NOTIFICATION_ID,
                         createNotification(),
-                        android.content.pm.ServiceInfo
+                        ServiceInfo
                                 .FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                 );
 
@@ -100,6 +99,7 @@ public class FloatingScannerService
 
             running = false;
             stopSelf();
+
             return;
         }
 
@@ -116,6 +116,8 @@ public class FloatingScannerService
 
             return;
         }
+
+        running = true;
 
         registerScannerReceiver();
 
@@ -274,6 +276,11 @@ public class FloatingScannerService
 
                             scanRunning = false;
 
+                            if (scanView != null) {
+
+                                scanView.stopAnimation();
+                            }
+
                             removeView(
                                     scanView
                             );
@@ -288,6 +295,7 @@ public class FloatingScannerService
                                     );
 
                             if (message == null) {
+
                                 message =
                                         "Scanner error";
                             }
@@ -602,19 +610,19 @@ public class FloatingScannerService
 
         try {
 
-            /*
-             * ScreenCaptureService ইতিমধ্যেই
-             * foreground service হিসেবে চলছে।
-             * তাই scan-এর জন্য নতুন FGS start
-             * করার প্রয়োজন নেই।
-             */
             startService(scan);
 
         } catch (Exception e) {
 
             scanRunning = false;
 
+            if (scanView != null) {
+
+                scanView.stopAnimation();
+            }
+
             removeView(scanView);
+
             scanView = null;
 
             createLogo();
@@ -790,12 +798,6 @@ public class FloatingScannerService
 
             int height =
                     getHeight();
-
-            /*
-             * শুধু translucent blue scanning band।
-             * কোনো radar নেই।
-             * কোনো arrow নেই।
-             */
 
             float bandHeight =
                     dp(110);
@@ -1049,9 +1051,7 @@ public class FloatingScannerService
                 Typeface.DEFAULT_BOLD
         );
 
-        resultText.setTextSize(
-                14
-        );
+        resultText.setTextSize(14);
 
         if ("UP".equals(signal)) {
 
@@ -1138,6 +1138,7 @@ public class FloatingScannerService
                         Gravity.START;
 
         params.x = savedX;
+
         params.y =
                 savedY + dp(50);
 
@@ -1209,11 +1210,7 @@ public class FloatingScannerService
         if (receiver != null) {
 
             try {
-
-                unregisterReceiver(
-                        receiver
-                );
-
+                unregisterReceiver(receiver);
             } catch (Exception ignored) {
             }
 
@@ -1242,7 +1239,9 @@ public class FloatingScannerService
 
     @Nullable
     @Override
-    public IBinder onBind(Intent intent) {
+    public IBinder onBind(
+            Intent intent
+    ) {
 
         return null;
     }
