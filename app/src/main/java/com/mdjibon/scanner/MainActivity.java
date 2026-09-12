@@ -79,9 +79,7 @@ public class MainActivity extends Activity {
                         Color.rgb(40, 220, 255)
                 );
 
-        title.setGravity(
-                Gravity.CENTER
-        );
+        title.setGravity(Gravity.CENTER);
 
         root.addView(
                 title,
@@ -98,9 +96,7 @@ public class MainActivity extends Activity {
                         Color.WHITE
                 );
 
-        subtitle.setGravity(
-                Gravity.CENTER
-        );
+        subtitle.setGravity(Gravity.CENTER);
 
         root.addView(
                 subtitle,
@@ -117,9 +113,7 @@ public class MainActivity extends Activity {
                         Color.LTGRAY
                 );
 
-        statusText.setGravity(
-                Gravity.CENTER
-        );
+        statusText.setGravity(Gravity.CENTER);
 
         statusText.setPadding(
                 0,
@@ -144,7 +138,6 @@ public class MainActivity extends Activity {
         );
 
         overlayButton.setAllCaps(false);
-
         overlayButton.setTextSize(16);
 
         overlayButton.setOnClickListener(
@@ -164,7 +157,6 @@ public class MainActivity extends Activity {
         );
 
         captureButton.setAllCaps(false);
-
         captureButton.setTextSize(16);
 
         captureButton.setOnClickListener(
@@ -185,7 +177,6 @@ public class MainActivity extends Activity {
         );
 
         timeframeButton.setAllCaps(false);
-
         timeframeButton.setTextSize(16);
 
         timeframeButton.setOnClickListener(
@@ -207,9 +198,7 @@ public class MainActivity extends Activity {
                         Color.LTGRAY
                 );
 
-        info.setGravity(
-                Gravity.CENTER
-        );
+        info.setGravity(Gravity.CENTER);
 
         info.setPadding(
                 0,
@@ -233,9 +222,7 @@ public class MainActivity extends Activity {
                         Color.GRAY
                 );
 
-        logic.setGravity(
-                Gravity.CENTER
-        );
+        logic.setGravity(Gravity.CENTER);
 
         root.addView(
                 logic,
@@ -372,6 +359,8 @@ public class MainActivity extends Activity {
                                         Color.WHITE
                                 );
                             }
+
+                            return;
                         }
 
                         if (ScreenCaptureService
@@ -387,6 +376,8 @@ public class MainActivity extends Activity {
                             updateCaptureButton(
                                     active
                             );
+
+                            return;
                         }
 
                         if (ScreenCaptureService
@@ -499,11 +490,7 @@ public class MainActivity extends Activity {
         if (FloatingScannerService.isRunning()) {
 
             try {
-
-                stopService(
-                        serviceIntent
-                );
-
+                stopService(serviceIntent);
             } catch (Exception ignored) {
             }
 
@@ -577,8 +564,7 @@ public class MainActivity extends Activity {
 
     private void toggleCapture() {
 
-        if (ScreenCaptureService
-                .isCaptureActive()) {
+        if (ScreenCaptureService.isCaptureActive()) {
 
             Intent stopIntent =
                     new Intent(
@@ -591,11 +577,7 @@ public class MainActivity extends Activity {
             );
 
             try {
-
-                startService(
-                        stopIntent
-                );
-
+                startService(stopIntent);
             } catch (Exception ignored) {
             }
 
@@ -872,8 +854,7 @@ public class MainActivity extends Activity {
         }
 
         updateCaptureButton(
-                ScreenCaptureService
-                        .isCaptureActive()
+                ScreenCaptureService.isCaptureActive()
         );
 
         if (timeframeButton != null) {
@@ -891,11 +872,7 @@ public class MainActivity extends Activity {
         if (receiver != null) {
 
             try {
-
-                unregisterReceiver(
-                        receiver
-                );
-
+                unregisterReceiver(receiver);
             } catch (Exception ignored) {
             }
 
