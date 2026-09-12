@@ -199,7 +199,7 @@ public class MainActivity extends Activity {
 
         root.setPadding(
                 28,
-                40,
+                45,
                 28,
                 30
         );
@@ -211,6 +211,12 @@ public class MainActivity extends Activity {
                         20
                 )
         );
+
+        /*
+         * =========================================================
+         * TITLE
+         * =========================================================
+         */
 
         TextView title =
                 text(
@@ -235,6 +241,12 @@ public class MainActivity extends Activity {
                 )
         );
 
+        /*
+         * =========================================================
+         * SUBTITLE
+         * =========================================================
+         */
+
         TextView subtitle =
                 text(
                         "SCREEN SCANNER",
@@ -246,6 +258,13 @@ public class MainActivity extends Activity {
                 Gravity.CENTER
         );
 
+        subtitle.setPadding(
+                0,
+                5,
+                0,
+                5
+        );
+
         root.addView(
                 subtitle,
                 new LinearLayout.LayoutParams(
@@ -254,10 +273,16 @@ public class MainActivity extends Activity {
                 )
         );
 
+        /*
+         * =========================================================
+         * STATUS
+         * =========================================================
+         */
+
         statusText =
                 text(
                         "READY",
-                        16,
+                        17,
                         Color.LTGRAY
                 );
 
@@ -280,6 +305,12 @@ public class MainActivity extends Activity {
                 )
         );
 
+        /*
+         * =========================================================
+         * FLOATING SCANNER BUTTON
+         * =========================================================
+         */
+
         overlayButton =
                 new Button(this);
 
@@ -289,6 +320,8 @@ public class MainActivity extends Activity {
 
         overlayButton.setAllCaps(false);
 
+        overlayButton.setTextSize(16);
+
         overlayButton.setOnClickListener(
                 v -> toggleOverlay()
         );
@@ -296,7 +329,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams overlayParams =
                 new LinearLayout.LayoutParams(
                         -1,
-                        -2
+                        60
                 );
 
         overlayParams.setMargins(
@@ -311,6 +344,12 @@ public class MainActivity extends Activity {
                 overlayParams
         );
 
+        /*
+         * =========================================================
+         * SCREEN CAPTURE BUTTON
+         * =========================================================
+         */
+
         captureButton =
                 new Button(this);
 
@@ -320,6 +359,8 @@ public class MainActivity extends Activity {
 
         captureButton.setAllCaps(false);
 
+        captureButton.setTextSize(16);
+
         captureButton.setOnClickListener(
                 v -> toggleCapture()
         );
@@ -327,7 +368,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams captureParams =
                 new LinearLayout.LayoutParams(
                         -1,
-                        -2
+                        60
                 );
 
         captureParams.setMargins(
@@ -342,6 +383,12 @@ public class MainActivity extends Activity {
                 captureParams
         );
 
+        /*
+         * =========================================================
+         * TIMEFRAME BUTTON
+         * =========================================================
+         */
+
         timeframeButton =
                 new Button(this);
 
@@ -352,6 +399,8 @@ public class MainActivity extends Activity {
 
         timeframeButton.setAllCaps(false);
 
+        timeframeButton.setTextSize(16);
+
         timeframeButton.setOnClickListener(
                 v -> cycleTimeframe()
         );
@@ -359,7 +408,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams timeframeParams =
                 new LinearLayout.LayoutParams(
                         -1,
-                        -2
+                        60
                 );
 
         timeframeParams.setMargins(
@@ -374,11 +423,18 @@ public class MainActivity extends Activity {
                 timeframeParams
         );
 
+        /*
+         * =========================================================
+         * INFORMATION
+         * =========================================================
+         */
+
         infoText =
                 text(
                         "Quotex/Cortex chart খুলে\n" +
-                                "Floating Scanner icon-এ চাপুন।\n\n" +
-                                "Icon drag করে যেকোনো জায়গায় নেওয়া যাবে।",
+                                "Screen Capture ON করুন।\n\n" +
+                                "তারপর Floating Scanner icon-এ চাপুন।\n\n" +
+                                "Icon ধরে drag করে যেকোনো জায়গায় নেওয়া যাবে।",
                         14,
                         Color.LTGRAY
                 );
@@ -389,9 +445,9 @@ public class MainActivity extends Activity {
 
         infoText.setPadding(
                 0,
-                30,
+                35,
                 0,
-                20
+                15
         );
 
         root.addView(
@@ -402,24 +458,43 @@ public class MainActivity extends Activity {
                 )
         );
 
-        TextView modeText =
+        /*
+         * =========================================================
+         * LOGIC INFORMATION
+         * =========================================================
+         */
+
+        TextView logicText =
                 text(
                         "100 LOGIC CHECKS",
                         13,
                         Color.GRAY
                 );
 
-        modeText.setGravity(
+        logicText.setGravity(
                 Gravity.CENTER
         );
 
+        logicText.setPadding(
+                0,
+                10,
+                0,
+                10
+        );
+
         root.addView(
-                modeText,
+                logicText,
                 new LinearLayout.LayoutParams(
                         -1,
                         -2
                 )
         );
+
+        /*
+         * IMPORTANT:
+         * এখানে কোনো Radar ImageView নেই।
+         * কোনো বড় Scanner graphic নেই।
+         */
 
         setContentView(root);
     }
@@ -450,6 +525,12 @@ public class MainActivity extends Activity {
 
         return t;
     }
+
+    /*
+     * =============================================================
+     * FLOATING SCANNER
+     * =============================================================
+     */
 
     private void toggleOverlay() {
 
@@ -548,6 +629,12 @@ public class MainActivity extends Activity {
         }
     }
 
+    /*
+     * =============================================================
+     * SCREEN CAPTURE
+     * =============================================================
+     */
+
     private void toggleCapture() {
 
         if (ScreenCaptureService.isCaptureActive()) {
@@ -605,6 +692,12 @@ public class MainActivity extends Activity {
         );
     }
 
+    /*
+     * =============================================================
+     * CAPTURE STATE
+     * =============================================================
+     */
+
     private void updateCaptureButton(
             boolean active
     ) {
@@ -638,6 +731,12 @@ public class MainActivity extends Activity {
             );
         }
     }
+
+    /*
+     * =============================================================
+     * TIMEFRAME
+     * =============================================================
+     */
 
     private String getTimeframe() {
 
@@ -690,10 +789,13 @@ public class MainActivity extends Activity {
                 )
                 .apply();
 
-        timeframeButton.setText(
-                "TIMEFRAME: " +
-                        next
-        );
+        if (timeframeButton != null) {
+
+            timeframeButton.setText(
+                    "TIMEFRAME: " +
+                            next
+            );
+        }
 
         Toast.makeText(
                 this,
@@ -701,6 +803,12 @@ public class MainActivity extends Activity {
                 Toast.LENGTH_SHORT
         ).show();
     }
+
+    /*
+     * =============================================================
+     * MEDIA PROJECTION RESULT
+     * =============================================================
+     */
 
     @Override
     protected void onActivityResult(
@@ -798,17 +906,36 @@ public class MainActivity extends Activity {
         }
     }
 
+    /*
+     * =============================================================
+     * RESUME
+     * =============================================================
+     */
+
     @Override
     protected void onResume() {
 
         super.onResume();
 
-        if (Settings.canDrawOverlays(this)) {
+        if (overlayButton != null &&
+                Settings.canDrawOverlays(this)) {
 
             if (FloatingScannerService.isRunning()) {
 
                 overlayButton.setText(
                         "FLOATING SCANNER OFF"
+                );
+
+                statusText.setText(
+                        "FLOATING SCANNER ON"
+                );
+
+                statusText.setTextColor(
+                        Color.rgb(
+                                40,
+                                220,
+                                255
+                        )
                 );
 
             } else {
@@ -831,6 +958,12 @@ public class MainActivity extends Activity {
             );
         }
     }
+
+    /*
+     * =============================================================
+     * DESTROY
+     * =============================================================
+     */
 
     @Override
     protected void onDestroy() {
