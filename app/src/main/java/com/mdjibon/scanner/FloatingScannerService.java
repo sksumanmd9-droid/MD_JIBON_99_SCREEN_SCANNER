@@ -5,10 +5,13 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.provider.Settings;
 import android.view.Gravity;
@@ -28,7 +31,7 @@ public class FloatingScannerService extends Service {
     private WindowManager windowManager;
 
     private View logoView;
-    private View scanView;
+    private ScanAnimationView scanView;
     private View resultView;
 
     private BroadcastReceiver receiver;
@@ -36,12 +39,26 @@ public class FloatingScannerService extends Service {
     private int savedX = 20;
     private int savedY = 250;
 
+    private final Handler mainHandler =
+            new Handler();
+
+    private boolean scanRunning = false;
+
+    // ============================================================
+    // SERVICE STATE
+    // ============================================================
+
     public static boolean isRunning() {
         return running;
     }
 
+    // ============================================================
+    // CREATE
+    // ============================================================
+
     @Override
     public void onCreate() {
+
         super.onCreate();
 
         running = true;
@@ -55,6 +72,7 @@ public class FloatingScannerService extends Service {
         registerScannerReceiver();
 
         if (Build.VERSION.SDK_INT >= 26) {
+
             startForeground(
                     2001,
                     new android.app.Notification.Builder(
@@ -83,12 +101,19 @@ public class FloatingScannerService extends Service {
                     Toast.LENGTH_LONG
             ).show();
 
+            running = false;
+
             stopSelf();
+
             return;
         }
 
         createLogo();
     }
+
+    // ============================================================
+    // NOTIFICATION CHANNEL
+    // ============================================================
 
     private String createChannel() {
 
@@ -112,6 +137,7 @@ public class FloatingScannerService extends Service {
                             );
 
             if (manager != null) {
+
                 manager.createNotificationChannel(
                         channel
                 );
@@ -120,6 +146,10 @@ public class FloatingScannerService extends Service {
 
         return channelId;
     }
+
+    // ============================================================
+    // RECEIVER
+    // ============================================================
 
     private void registerScannerReceiver() {
 
@@ -139,9 +169,10 @@ public class FloatingScannerService extends Service {
                         String action =
                                 intent.getAction();
 
-                        /*
-                         * SAME ACTION AS ScreenCaptureService.
-                         */
+                        // ------------------------------
+                        // PROGRESS
+                        // ------------------------------
+
                         if (ScreenCaptureService
                                 .ACTION_PROGRESS
                                 .equals(action)) {
@@ -152,11 +183,21 @@ public class FloatingScannerService extends Service {
                                             0
                                     );
 
-                            updateProgress(
-                                    progress
-                            );
+                            if (scanView != null) {
 
-                        } else if (ScreenCaptureService
+                                scanView.setProgress(
+                                        progress
+                                );
+                            }
+
+                            return;
+                        }
+
+                        // ------------------------------
+                        // RESULT
+                        // ------------------------------
+
+                        if (ScreenCaptureService
                                 .ACTION_RESULT
                                 .equals(action)) {
 
@@ -171,29 +212,9 @@ public class FloatingScannerService extends Service {
                                             0
                                     );
 
-                            int rules =
-                                    intent.getIntExtra(
-                                            "ruleCount",
-                                            0
-                                    );
-
-                            int candles =
-                                    intent.getIntExtra(
-                                            "detectedCandles",
-                                            0
-                                    );
-
-                            String timeframe =
-                                    intent.getStringExtra(
-                                            "timeframe"
-                                    );
-
                             showResult(
                                     signal,
-                                    confidence,
-                                    rules,
-                                    candles,
-                                    timeframe
+                                    confidence
                             );
                         }
                     }
@@ -227,25 +248,38 @@ public class FloatingScannerService extends Service {
         }
     }
 
+    // ============================================================
+    // DP
+    // ============================================================
+
     private int dp(float value) {
 
         return (int)
-                (value *
-                        getResources()
-                                .getDisplayMetrics()
-                                .density +
-                        0.5f);
+                (
+                        value *
+                                getResources()
+                                        .getDisplayMetrics()
+                                        .density
+                                + 0.5f
+                );
     }
+
+    // ============================================================
+    // OVERLAY PARAMS
+    // ============================================================
 
     private WindowManager.LayoutParams overlayParams() {
 
         int type;
 
         if (Build.VERSION.SDK_INT >= 26) {
+
             type =
                     WindowManager.LayoutParams
                             .TYPE_APPLICATION_OVERLAY;
+
         } else {
+
             type =
                     WindowManager.LayoutParams
                             .TYPE_PHONE;
@@ -257,7 +291,8 @@ public class FloatingScannerService extends Service {
                         WindowManager.LayoutParams.WRAP_CONTENT,
                         type,
                         WindowManager.LayoutParams
-                                .FLAG_NOT_FOCUSABLE |
+                                .FLAG_NOT_FOCUSABLE
+                                |
                                 WindowManager.LayoutParams
                                 .FLAG_LAYOUT_NO_LIMITS,
                         PixelFormat.TRANSLUCENT
@@ -273,6 +308,10 @@ public class FloatingScannerService extends Service {
         return params;
     }
 
+    // ============================================================
+    // SMALL FLOATING ICON
+    // ============================================================
+
     private void createLogo() {
 
         if (windowManager == null) {
@@ -283,28 +322,30 @@ public class FloatingScannerService extends Service {
             return;
         }
 
-        /*
-         * SMALL FLOATING ICON:
-         * Previous size was too large.
-         * 44dp keeps the same logo but makes it compact.
-         */
         ImageView image =
                 new ImageView(this);
 
-        image.setImageResource(
+        int drawableId =
                 getResources()
                         .getIdentifier(
                                 "md_jibon_logo",
                                 "drawable",
                                 getPackageName()
-                        )
+                        );
+
+        image.setImageResource(
+                drawableId
         );
 
         image.setScaleType(
                 ImageView.ScaleType.CENTER_INSIDE
         );
 
-        int size = dp(44);
+        /*
+         * ছোট app-এর মতো floating icon
+         */
+        int size =
+                dp(46);
 
         image.setLayoutParams(
                 new android.view.ViewGroup.LayoutParams(
@@ -323,8 +364,10 @@ public class FloatingScannerService extends Service {
 
                     private int downX;
                     private int downY;
+
                     private int startX;
                     private int startY;
+
                     private long downTime;
 
                     @Override
@@ -333,18 +376,25 @@ public class FloatingScannerService extends Service {
                             MotionEvent event
                     ) {
 
-                        switch (event.getAction()) {
+                        switch (
+                                event.getAction()
+                        ) {
 
                             case MotionEvent.ACTION_DOWN:
 
                                 downX =
-                                        (int) event.getRawX();
+                                        (int)
+                                                event.getRawX();
 
                                 downY =
-                                        (int) event.getRawY();
+                                        (int)
+                                                event.getRawY();
 
-                                startX = params.x;
-                                startY = params.y;
+                                startX =
+                                        params.x;
+
+                                startY =
+                                        params.y;
 
                                 downTime =
                                         System.currentTimeMillis();
@@ -354,12 +404,14 @@ public class FloatingScannerService extends Service {
                             case MotionEvent.ACTION_MOVE:
 
                                 int dx =
-                                        (int) event.getRawX() -
-                                                downX;
+                                        (int)
+                                                event.getRawX()
+                                                - downX;
 
                                 int dy =
-                                        (int) event.getRawY() -
-                                                downY;
+                                        (int)
+                                                event.getRawY()
+                                                - downY;
 
                                 params.x =
                                         startX + dx;
@@ -368,10 +420,13 @@ public class FloatingScannerService extends Service {
                                         startY + dy;
 
                                 try {
-                                    windowManager.updateViewLayout(
-                                            image,
-                                            params
-                                    );
+
+                                    windowManager
+                                            .updateViewLayout(
+                                                    image,
+                                                    params
+                                            );
+
                                 } catch (Exception ignored) {
                                 }
 
@@ -379,27 +434,35 @@ public class FloatingScannerService extends Service {
 
                             case MotionEvent.ACTION_UP:
 
-                                savedX = params.x;
-                                savedY = params.y;
+                                savedX =
+                                        params.x;
+
+                                savedY =
+                                        params.y;
 
                                 long duration =
-                                        System.currentTimeMillis() -
-                                                downTime;
+                                        System.currentTimeMillis()
+                                                - downTime;
 
                                 int totalMove =
                                         Math.abs(
-                                                (int) event.getRawX() -
-                                                        downX
-                                        ) +
-                                                Math.abs(
-                                                        (int) event.getRawY() -
-                                                                downY
-                                                );
+                                                (int)
+                                                        event.getRawX()
+                                                        - downX
+                                        )
+                                        +
+                                        Math.abs(
+                                                (int)
+                                                        event.getRawY()
+                                                        - downY
+                                        );
 
                                 /*
-                                 * Tap = short press + little movement.
+                                 * শুধু tap করলে scan হবে।
+                                 * drag করলে scan হবে না।
                                  */
-                                if (duration < 350 &&
+                                if (duration < 350
+                                        &&
                                         totalMove < dp(12)) {
 
                                     startScan();
@@ -426,8 +489,19 @@ public class FloatingScannerService extends Service {
         }
     }
 
+    // ============================================================
+    // START SCAN
+    // ============================================================
+
     private void startScan() {
 
+        if (scanRunning) {
+            return;
+        }
+
+        /*
+         * Screen Capture অবশ্যই ON থাকতে হবে।
+         */
         if (!ScreenCaptureService
                 .isCaptureActive()) {
 
@@ -440,10 +514,18 @@ public class FloatingScannerService extends Service {
             return;
         }
 
+        scanRunning = true;
+
+        /*
+         * Floating icon সাময়িকভাবে hide।
+         */
         removeView(
                 logoView
         );
 
+        /*
+         * ছোট scanning animation।
+         */
         createScanView();
 
         Intent scan =
@@ -466,12 +548,21 @@ public class FloatingScannerService extends Service {
 
             } else {
 
-                startService(scan);
+                startService(
+                        scan
+                );
             }
 
         } catch (Exception e) {
 
-            removeView(scanView);
+            scanRunning = false;
+
+            removeView(
+                    scanView
+            );
+
+            scanView = null;
+
             createLogo();
 
             Toast.makeText(
@@ -482,138 +573,522 @@ public class FloatingScannerService extends Service {
         }
     }
 
+    // ============================================================
+    // SCAN ANIMATION
+    // ============================================================
+
     private void createScanView() {
 
-        TextView scan =
-                new TextView(this);
-
-        scan.setText(
-                "SCANNING\n0 / 100"
-        );
-
-        scan.setTextColor(
-                Color.WHITE
-        );
-
-        scan.setTextSize(
-                18
-        );
-
-        scan.setGravity(
-                Gravity.CENTER
-        );
-
-        GradientDrawable bg =
-                new GradientDrawable();
-
-        bg.setColor(
-                Color.rgb(
-                        10,
-                        18,
-                        30
-                )
-        );
-
-        bg.setCornerRadius(
-                dp(18)
-        );
-
-        bg.setStroke(
-                dp(2),
-                Color.rgb(
-                        40,
-                        220,
-                        255
-                )
-        );
-
-        scan.setBackground(bg);
-
-        int width = dp(155);
-        int height = dp(90);
-
-        scanView = scan;
+        scanView =
+                new ScanAnimationView(
+                        this
+                );
 
         WindowManager.LayoutParams params =
-                overlayParams();
+                new WindowManager.LayoutParams();
 
-        params.width = width;
-        params.height = height;
+        /*
+         * পুরো screen transparent থাকবে।
+         * শুধু চলমান blue scanning layer দেখা যাবে।
+         */
+        params.width =
+                WindowManager.LayoutParams.MATCH_PARENT;
 
-        params.x =
-                Math.max(
-                        0,
-                        savedX - dp(50)
-                );
+        params.height =
+                WindowManager.LayoutParams.MATCH_PARENT;
 
-        params.y =
-                Math.max(
-                        0,
-                        savedY - dp(20)
-                );
+        if (Build.VERSION.SDK_INT >= 26) {
+
+            params.type =
+                    WindowManager.LayoutParams
+                            .TYPE_APPLICATION_OVERLAY;
+
+        } else {
+
+            params.type =
+                    WindowManager.LayoutParams
+                            .TYPE_PHONE;
+        }
+
+        params.gravity =
+                Gravity.TOP |
+                        Gravity.START;
+
+        params.flags =
+                WindowManager.LayoutParams
+                        .FLAG_NOT_FOCUSABLE
+                        |
+                        WindowManager.LayoutParams
+                        .FLAG_NOT_TOUCHABLE
+                        |
+                        WindowManager.LayoutParams
+                        .FLAG_LAYOUT_IN_SCREEN
+                        |
+                        WindowManager.LayoutParams
+                        .FLAG_LAYOUT_NO_LIMITS;
+
+        params.format =
+                PixelFormat.TRANSLUCENT;
 
         try {
 
             windowManager.addView(
-                    scan,
+                    scanView,
                     params
             );
 
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+
+            scanView = null;
+
+            scanRunning = false;
+
+            createLogo();
         }
     }
 
-    private void updateProgress(
-            int progress
-    ) {
+    // ============================================================
+    // SCAN ANIMATION VIEW
+    // ============================================================
 
-        if (!(scanView instanceof TextView)) {
-            return;
+    private class ScanAnimationView
+            extends View {
+
+        private final Paint paint =
+                new Paint(
+                        Paint.ANTI_ALIAS_FLAG
+                );
+
+        /*
+         * scanning band-এর current position
+         */
+        private float scanY =
+                -dp(70);
+
+        private int progress = 0;
+
+        private boolean animationRunning =
+                true;
+
+        private final Runnable animationRunnable =
+                new Runnable() {
+
+                    @Override
+                    public void run() {
+
+                        if (!animationRunning) {
+                            return;
+                        }
+
+                        /*
+                         * উপর থেকে নিচে চলবে।
+                         */
+                        scanY +=
+                                dp(9);
+
+                        if (scanY >
+                                getHeight()) {
+
+                            /*
+                             * analysis যদি একটু বেশি সময় নেয়,
+                             * আবার উপর থেকে শুরু করবে।
+                             */
+                            scanY =
+                                    -dp(70);
+                        }
+
+                        invalidate();
+
+                        postDelayed(
+                                this,
+                                24
+                        );
+                    }
+                };
+
+        public ScanAnimationView(
+                Context context
+        ) {
+
+            super(context);
+
+            setLayerType(
+                    View.LAYER_TYPE_SOFTWARE,
+                    null
+            );
+
+            post(
+                    animationRunnable
+            );
         }
 
-        TextView text =
-                (TextView) scanView;
+        public void setProgress(
+                int value
+        ) {
 
-        text.setText(
-                "SCANNING\n" +
+            progress =
+                    Math.max(
+                            0,
+                            Math.min(
+                                    100,
+                                    value
+                            )
+                    );
+
+            invalidate();
+        }
+
+        public void stopAnimation() {
+
+            animationRunning =
+                    false;
+
+            removeCallbacks(
+                    animationRunnable
+            );
+        }
+
+        @Override
+        protected void onDraw(
+                Canvas canvas
+        ) {
+
+            super.onDraw(canvas);
+
+            int width =
+                    getWidth();
+
+            int height =
+                    getHeight();
+
+            /*
+             * ====================================================
+             * BLUE SCANNING COVER
+             * ====================================================
+             *
+             * এটি মাঝখানে স্থির কোনো দাগ নয়।
+             *
+             * উপর থেকে নিচে একটি translucent blue
+             * scanning area চলে যাবে।
+             */
+
+            float bandHeight =
+                    dp(110);
+
+            float top =
+                    scanY;
+
+            float bottom =
+                    scanY +
+                            bandHeight;
+
+            /*
+             * বড় soft blue scanning glow।
+             */
+            Paint glow =
+                    new Paint(
+                            Paint.ANTI_ALIAS_FLAG
+                    );
+
+            glow.setColor(
+                    Color.argb(
+                            32,
+                            20,
+                            180,
+                            255
+                    )
+            );
+
+            canvas.drawRect(
+                    0,
+                    top,
+                    width,
+                    bottom,
+                    glow
+            );
+
+            /*
+             * scanning-এর মাঝের উজ্জ্বল অংশ।
+             */
+            Paint middle =
+                    new Paint(
+                            Paint.ANTI_ALIAS_FLAG
+                    );
+
+            middle.setColor(
+                    Color.argb(
+                            72,
+                            30,
+                            190,
+                            255
+                    )
+            );
+
+            float middleTop =
+                    scanY +
+                            dp(40);
+
+            float middleBottom =
+                    scanY +
+                            dp(70);
+
+            canvas.drawRect(
+                    0,
+                    middleTop,
+                    width,
+                    middleBottom,
+                    middle
+            );
+
+            /*
+             * একটি খুব পাতলা bright blue edge।
+             *
+             * এটা স্থায়ী center line নয়।
+             * scanning band-এর সঙ্গে উপর থেকে নিচে যায়।
+             */
+            Paint edge =
+                    new Paint(
+                            Paint.ANTI_ALIAS_FLAG
+                    );
+
+            edge.setColor(
+                    Color.argb(
+                            190,
+                            30,
+                            210,
+                            255
+                    )
+            );
+
+            edge.setStrokeWidth(
+                    dp(2)
+            );
+
+            float edgeY =
+                    scanY +
+                            dp(55);
+
+            canvas.drawLine(
+                    0,
+                    edgeY,
+                    width,
+                    edgeY,
+                    edge
+            );
+
+            /*
+             * Progress indicator খুব ছোট করে।
+             * কোনো বড় text নেই।
+             */
+            if (progress > 0 &&
+                    progress < 100) {
+
+                Paint progressPaint =
+                        new Paint(
+                                Paint.ANTI_ALIAS_FLAG
+                        );
+
+                progressPaint.setColor(
+                        Color.argb(
+                                190,
+                                30,
+                                210,
+                                255
+                        )
+                );
+
+                float progressWidth =
+                        width *
+                                (progress / 100f);
+
+                canvas.drawRect(
+                        0,
                         Math.max(
                                 0,
-                                Math.min(
-                                        100,
-                                        progress
-                                )
-                        ) +
-                        " / 100"
-        );
+                                height - dp(3)
+                        ),
+                        progressWidth,
+                        height,
+                        progressPaint
+                );
+            }
+        }
     }
+
+    // ============================================================
+    // SHOW SMALL RESULT
+    // ============================================================
 
     private void showResult(
             String signal,
-            int confidence,
-            int rules,
-            int candles,
-            String timeframe
+            int confidence
     ) {
 
-        removeView(scanView);
+        scanRunning = false;
+
+        /*
+         * Scan animation বন্ধ।
+         */
+        if (scanView != null) {
+
+            scanView.stopAnimation();
+
+            removeView(
+                    scanView
+            );
+
+            scanView = null;
+        }
+
+        /*
+         * পুরোনো result থাকলে remove।
+         */
+        removeView(
+                resultView
+        );
 
         if (signal == null) {
-            signal = "NO TRADE";
+
+            signal =
+                    "NO TRADE";
         }
 
-        if (!"UP".equals(signal) &&
-                !"DOWN".equals(signal) &&
+        /*
+         * Invalid signal হলে NO TRADE।
+         */
+        if (!"UP".equals(signal)
+                &&
+                !"DOWN".equals(signal)
+                &&
                 !"NO TRADE".equals(signal)) {
 
-            signal = "NO TRADE";
+            signal =
+                    "NO TRADE";
         }
 
-        String safeTimeframe =
-                timeframe == null
-                        ? "1 MIN"
-                        : timeframe;
+        /*
+         * --------------------------------------------------------
+         * ছোট result container
+         * --------------------------------------------------------
+         */
+        android.widget.LinearLayout container =
+                new android.widget.LinearLayout(
+                        this
+                );
 
-        TextView result =
+        container.setOrientation(
+                android.widget.LinearLayout.HORIZONTAL
+        );
+
+        container.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
+
+        container.setPadding(
+                dp(5),
+                dp(4),
+                dp(8),
+                dp(4)
+        );
+
+        GradientDrawable background =
+                new GradientDrawable();
+
+        background.setColor(
+                Color.argb(
+                        245,
+                        5,
+                        12,
+                        22
+                )
+        );
+
+        background.setCornerRadius(
+                dp(14)
+        );
+
+        int borderColor;
+
+        if ("UP".equals(signal)) {
+
+            borderColor =
+                    Color.rgb(
+                            20,
+                            235,
+                            120
+                    );
+
+        } else if ("DOWN".equals(signal)) {
+
+            borderColor =
+                    Color.rgb(
+                            255,
+                            55,
+                            65
+                    );
+
+        } else {
+
+            borderColor =
+                    Color.rgb(
+                            120,
+                            150,
+                            175
+                    );
+        }
+
+        background.setStroke(
+                dp(1),
+                borderColor
+        );
+
+        container.setBackground(
+                background
+        );
+
+        // ========================================================
+        // SMALL LOGO
+        // ========================================================
+
+        ImageView icon =
+                new ImageView(this);
+
+        int drawableId =
+                getResources()
+                        .getIdentifier(
+                                "md_jibon_logo",
+                                "drawable",
+                                getPackageName()
+                        );
+
+        icon.setImageResource(
+                drawableId
+        );
+
+        icon.setScaleType(
+                ImageView.ScaleType.CENTER_INSIDE
+        );
+
+        android.widget.LinearLayout.LayoutParams
+                iconParams =
+                new android.widget.LinearLayout.LayoutParams(
+                        dp(34),
+                        dp(34)
+                );
+
+        iconParams.rightMargin =
+                dp(5);
+
+        container.addView(
+                icon,
+                iconParams
+        );
+
+        // ========================================================
+        // SIGNAL TEXT
+        // ========================================================
+
+        TextView resultText =
                 new TextView(this);
 
         String text;
@@ -621,168 +1096,151 @@ public class FloatingScannerService extends Service {
         if ("UP".equals(signal)) {
 
             text =
-                    "▲ UP\n" +
-                            "Score: " +
+                    "↑ UP  " +
                             confidence +
-                            "%\n" +
-                            "Rules: " +
-                            rules +
-                            "/100\n" +
-                            "Candles: " +
-                            candles;
+                            "%";
 
-        } else if ("DOWN".equals(signal)) {
-
-            text =
-                    "▼ DOWN\n" +
-                            "Score: " +
-                            confidence +
-                            "%\n" +
-                            "Rules: " +
-                            rules +
-                            "/100\n" +
-                            "Candles: " +
-                            candles;
-
-        } else {
-
-            text =
-                    "WAIT\n" +
-                            "NO TRADE\n" +
-                            "Rules: " +
-                            rules +
-                            "/100\n" +
-                            "Candles: " +
-                            candles;
-        }
-
-        result.setText(text);
-
-        result.setTextSize(17);
-
-        result.setGravity(
-                Gravity.CENTER
-        );
-
-        if ("UP".equals(signal)) {
-
-            result.setTextColor(
+            resultText.setTextColor(
                     Color.rgb(
-                            30,
-                            235,
-                            135
+                            25,
+                            240,
+                            125
                     )
             );
 
         } else if ("DOWN".equals(signal)) {
 
-            result.setTextColor(
+            text =
+                    "↓ DOWN  " +
+                            confidence +
+                            "%";
+
+            resultText.setTextColor(
                     Color.rgb(
                             255,
-                            70,
-                            85
+                            60,
+                            70
                     )
             );
 
         } else {
 
-            result.setTextColor(
+            text =
+                    "WAIT";
+
+            resultText.setTextColor(
                     Color.WHITE
             );
         }
 
-        GradientDrawable bg =
-                new GradientDrawable();
+        resultText.setText(
+                text
+        );
 
-        bg.setColor(
-                Color.rgb(
-                        8,
-                        12,
-                        20
+        /*
+         * ছোট লেখা।
+         */
+        resultText.setTextSize(
+                15
+        );
+
+        resultText.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
+
+        resultText.setTypeface(
+                android.graphics.Typeface.DEFAULT,
+                android.graphics.Typeface.BOLD
+        );
+
+        container.addView(
+                resultText,
+                new android.widget.LinearLayout.LayoutParams(
+                        dp(95),
+                        dp(40)
                 )
         );
 
-        bg.setCornerRadius(
-                dp(18)
-        );
+        resultView =
+                container;
 
-        bg.setStroke(
-                dp(2),
-                Color.rgb(
-                        80,
-                        80,
-                        90
-                )
-        );
-
-        result.setBackground(bg);
-
-        result.setPadding(
-                dp(10),
-                dp(8),
-                dp(10),
-                dp(8)
-        );
-
-        resultView = result;
+        // ========================================================
+        // RESULT POSITION
+        // ========================================================
 
         WindowManager.LayoutParams params =
                 overlayParams();
 
-        params.width = dp(180);
-        params.height = dp(130);
+        /*
+         * Result icon-এর কাছাকাছি থাকবে।
+         */
+        params.width =
+                dp(145);
+
+        params.height =
+                dp(50);
 
         params.x =
                 Math.max(
                         0,
-                        savedX - dp(60)
+                        savedX
                 );
 
         params.y =
                 Math.max(
                         0,
-                        savedY - dp(35)
+                        savedY
                 );
 
         try {
 
             windowManager.addView(
-                    result,
+                    container,
                     params
             );
 
         } catch (Exception ignored) {
+
+            resultView = null;
+
+            createLogo();
+
+            return;
         }
 
         /*
-         * Result remains visible for 4 seconds,
-         * then floating logo comes back.
+         * Result 3 seconds থাকবে।
          */
-        mainHandlerPostDelayed(
+        final View currentResult =
+                resultView;
+
+        mainHandler.postDelayed(
                 () -> {
 
-                    removeView(resultView);
-                    resultView = null;
+                    removeView(
+                            currentResult
+                    );
 
+                    if (resultView ==
+                            currentResult) {
+
+                        resultView =
+                                null;
+                    }
+
+                    /*
+                     * আবার ছোট floating icon।
+                     */
                     createLogo();
 
                 },
-                4000
+                3000
         );
     }
 
-    private void mainHandlerPostDelayed(
-            Runnable runnable,
-            long delay
-    ) {
-
-        new android.os.Handler(
-                android.os.Looper.getMainLooper()
-        ).postDelayed(
-                runnable,
-                delay
-        );
-    }
+    // ============================================================
+    // REMOVE VIEW
+    // ============================================================
 
     private void removeView(
             View view
@@ -790,37 +1248,65 @@ public class FloatingScannerService extends Service {
 
         if (view == null ||
                 windowManager == null) {
+
             return;
         }
 
         try {
 
-            windowManager.removeView(view);
+            windowManager.removeView(
+                    view
+            );
 
         } catch (Exception ignored) {
         }
     }
+
+    // ============================================================
+    // DESTROY
+    // ============================================================
 
     @Override
     public void onDestroy() {
 
         running = false;
 
+        scanRunning = false;
+
+        if (scanView != null) {
+
+            scanView.stopAnimation();
+        }
+
+        mainHandler.removeCallbacksAndMessages(
+                null
+        );
+
         if (receiver != null) {
 
             try {
+
                 unregisterReceiver(
                         receiver
                 );
+
             } catch (Exception ignored) {
             }
 
             receiver = null;
         }
 
-        removeView(logoView);
-        removeView(scanView);
-        removeView(resultView);
+        removeView(
+                logoView
+        );
+
+        removeView(
+                scanView
+        );
+
+        removeView(
+                resultView
+        );
 
         logoView = null;
         scanView = null;
@@ -829,9 +1315,16 @@ public class FloatingScannerService extends Service {
         super.onDestroy();
     }
 
+    // ============================================================
+    // BIND
+    // ============================================================
+
     @Nullable
     @Override
-    public IBinder onBind(Intent intent) {
+    public IBinder onBind(
+            Intent intent
+    ) {
+
         return null;
     }
 }
