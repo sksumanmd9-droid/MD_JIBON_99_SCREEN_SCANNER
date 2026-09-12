@@ -50,93 +50,56 @@ public class MainActivity extends Activity {
 
     private void buildUI() {
 
-        LinearLayout root =
-                new LinearLayout(this);
+        LinearLayout root = new LinearLayout(this);
 
-        root.setOrientation(
-                LinearLayout.VERTICAL
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        root.setPadding(28, 45, 28, 30);
+        root.setBackgroundColor(Color.rgb(8, 12, 20));
+
+        TextView title = text(
+                "MD JIBON",
+                30,
+                Color.rgb(40, 220, 255)
         );
-
-        root.setGravity(
-                Gravity.CENTER_HORIZONTAL
-        );
-
-        root.setPadding(
-                28,
-                45,
-                28,
-                30
-        );
-
-        root.setBackgroundColor(
-                Color.rgb(8, 12, 20)
-        );
-
-        TextView title =
-                text(
-                        "MD JIBON",
-                        30,
-                        Color.rgb(40, 220, 255)
-                );
 
         title.setGravity(Gravity.CENTER);
 
         root.addView(
                 title,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
+                new LinearLayout.LayoutParams(-1, -2)
         );
 
-        TextView subtitle =
-                text(
-                        "SCREEN SCANNER",
-                        17,
-                        Color.WHITE
-                );
+        TextView subtitle = text(
+                "SCREEN SCANNER",
+                17,
+                Color.WHITE
+        );
 
         subtitle.setGravity(Gravity.CENTER);
 
         root.addView(
                 subtitle,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
+                new LinearLayout.LayoutParams(-1, -2)
         );
 
-        statusText =
-                text(
-                        "READY",
-                        17,
-                        Color.LTGRAY
-                );
+        statusText = text(
+                "READY",
+                17,
+                Color.LTGRAY
+        );
 
         statusText.setGravity(Gravity.CENTER);
-
-        statusText.setPadding(
-                0,
-                25,
-                0,
-                25
-        );
+        statusText.setPadding(0, 25, 0, 25);
 
         root.addView(
                 statusText,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
+                new LinearLayout.LayoutParams(-1, -2)
         );
 
-        overlayButton =
-                new Button(this);
+        overlayButton = new Button(this);
 
-        overlayButton.setText(
-                "FLOATING SCANNER ON"
-        );
-
+        overlayButton.setText("FLOATING SCANNER ON");
         overlayButton.setAllCaps(false);
         overlayButton.setTextSize(16);
 
@@ -149,13 +112,9 @@ public class MainActivity extends Activity {
                 buttonParams()
         );
 
-        captureButton =
-                new Button(this);
+        captureButton = new Button(this);
 
-        captureButton.setText(
-                "SCREEN CAPTURE ON"
-        );
-
+        captureButton.setText("SCREEN CAPTURE ON");
         captureButton.setAllCaps(false);
         captureButton.setTextSize(16);
 
@@ -168,12 +127,10 @@ public class MainActivity extends Activity {
                 buttonParams()
         );
 
-        timeframeButton =
-                new Button(this);
+        timeframeButton = new Button(this);
 
         timeframeButton.setText(
-                "TIMEFRAME: " +
-                        getTimeframe()
+                "TIMEFRAME: " + getTimeframe()
         );
 
         timeframeButton.setAllCaps(false);
@@ -188,48 +145,34 @@ public class MainActivity extends Activity {
                 buttonParams()
         );
 
-        TextView info =
-                text(
-                        "Quotex/Cortex chart খুলে\n" +
+        TextView info = text(
+                "Quotex/Cortex chart খুলে\n" +
                         "Screen Capture ON করুন।\n\n" +
                         "তারপর Floating Scanner icon-এ চাপুন।\n\n" +
                         "Icon ধরে drag করে যেকোনো জায়গায় নেওয়া যাবে।",
-                        14,
-                        Color.LTGRAY
-                );
+                14,
+                Color.LTGRAY
+        );
 
         info.setGravity(Gravity.CENTER);
-
-        info.setPadding(
-                0,
-                35,
-                0,
-                15
-        );
+        info.setPadding(0, 35, 0, 15);
 
         root.addView(
                 info,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
+                new LinearLayout.LayoutParams(-1, -2)
         );
 
-        TextView logic =
-                text(
-                        "100 LOGIC CHECKS",
-                        13,
-                        Color.GRAY
-                );
+        TextView logic = text(
+                "100 LOGIC CHECKS",
+                13,
+                Color.GRAY
+        );
 
         logic.setGravity(Gravity.CENTER);
 
         root.addView(
                 logic,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
+                new LinearLayout.LayoutParams(-1, -2)
         );
 
         setContentView(root);
@@ -238,17 +181,9 @@ public class MainActivity extends Activity {
     private LinearLayout.LayoutParams buttonParams() {
 
         LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(
-                        -1,
-                        60
-                );
+                new LinearLayout.LayoutParams(-1, 60);
 
-        params.setMargins(
-                0,
-                8,
-                0,
-                8
-        );
+        params.setMargins(0, 8, 0, 8);
 
         return params;
     }
@@ -259,158 +194,115 @@ public class MainActivity extends Activity {
             int color
     ) {
 
-        TextView t =
-                new TextView(this);
+        TextView t = new TextView(this);
 
         t.setText(value);
         t.setTextSize(size);
         t.setTextColor(color);
-
-        t.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
-
-        t.setPadding(
-                0,
-                8,
-                0,
-                8
-        );
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        t.setPadding(0, 8, 0, 8);
 
         return t;
     }
 
     private void registerScannerReceiver() {
 
-        receiver =
-                new BroadcastReceiver() {
+        receiver = new BroadcastReceiver() {
 
-                    @Override
-                    public void onReceive(
-                            Context context,
-                            Intent intent
-                    ) {
+            @Override
+            public void onReceive(
+                    Context context,
+                    Intent intent
+            ) {
 
-                        if (intent == null) {
-                            return;
-                        }
+                if (intent == null) {
+                    return;
+                }
 
-                        String action =
-                                intent.getAction();
+                String action = intent.getAction();
 
-                        if (ScreenCaptureService
-                                .ACTION_RESULT
-                                .equals(action)) {
+                if (ScreenCaptureService.ACTION_RESULT.equals(action)) {
 
-                            String signal =
-                                    intent.getStringExtra(
-                                            "signal"
-                                    );
+                    String signal =
+                            intent.getStringExtra("signal");
 
-                            int confidence =
-                                    intent.getIntExtra(
-                                            "confidence",
-                                            0
-                                    );
+                    int confidence =
+                            intent.getIntExtra("confidence", 0);
 
-                            if (signal == null) {
-                                signal = "NO TRADE";
-                            }
-
-                            if ("UP".equals(signal)) {
-
-                                statusText.setText(
-                                        "SCAN COMPLETE • UP " +
-                                                confidence +
-                                                "%"
-                                );
-
-                                statusText.setTextColor(
-                                        Color.rgb(
-                                                30,
-                                                235,
-                                                135
-                                        )
-                                );
-
-                            } else if ("DOWN".equals(signal)) {
-
-                                statusText.setText(
-                                        "SCAN COMPLETE • DOWN " +
-                                                confidence +
-                                                "%"
-                                );
-
-                                statusText.setTextColor(
-                                        Color.rgb(
-                                                255,
-                                                70,
-                                                85
-                                        )
-                                );
-
-                            } else {
-
-                                statusText.setText(
-                                        "SCAN COMPLETE • WAIT"
-                                );
-
-                                statusText.setTextColor(
-                                        Color.WHITE
-                                );
-                            }
-
-                            return;
-                        }
-
-                        if (ScreenCaptureService
-                                .ACTION_CAPTURE_STATE
-                                .equals(action)) {
-
-                            boolean active =
-                                    intent.getBooleanExtra(
-                                            "active",
-                                            false
-                                    );
-
-                            updateCaptureButton(
-                                    active
-                            );
-
-                            return;
-                        }
-
-                        if (ScreenCaptureService
-                                .ACTION_ERROR
-                                .equals(action)) {
-
-                            String message =
-                                    intent.getStringExtra(
-                                            "message"
-                                    );
-
-                            if (message == null) {
-                                message =
-                                        "Screen Capture error";
-                            }
-
-                            statusText.setText(
-                                    message
-                            );
-
-                            statusText.setTextColor(
-                                    Color.rgb(
-                                            255,
-                                            70,
-                                            85
-                                    )
-                            );
-                        }
+                    if (signal == null) {
+                        signal = "NO TRADE";
                     }
-                };
 
-        IntentFilter filter =
-                new IntentFilter();
+                    if ("UP".equals(signal)) {
+
+                        statusText.setText(
+                                "SCAN COMPLETE • UP " +
+                                        confidence +
+                                        "%"
+                        );
+
+                        statusText.setTextColor(
+                                Color.rgb(30, 235, 135)
+                        );
+
+                    } else if ("DOWN".equals(signal)) {
+
+                        statusText.setText(
+                                "SCAN COMPLETE • DOWN " +
+                                        confidence +
+                                        "%"
+                        );
+
+                        statusText.setTextColor(
+                                Color.rgb(255, 70, 85)
+                        );
+
+                    } else {
+
+                        statusText.setText(
+                                "SCAN COMPLETE • WAIT"
+                        );
+
+                        statusText.setTextColor(
+                                Color.WHITE
+                        );
+                    }
+
+                    return;
+                }
+
+                if (ScreenCaptureService.ACTION_CAPTURE_STATE.equals(action)) {
+
+                    boolean active =
+                            intent.getBooleanExtra(
+                                    "active",
+                                    false
+                            );
+
+                    updateCaptureButton(active);
+
+                    return;
+                }
+
+                if (ScreenCaptureService.ACTION_ERROR.equals(action)) {
+
+                    String message =
+                            intent.getStringExtra("message");
+
+                    if (message == null) {
+                        message = "Screen Capture error";
+                    }
+
+                    statusText.setText(message);
+
+                    statusText.setTextColor(
+                            Color.rgb(255, 70, 85)
+                    );
+                }
+            }
+        };
+
+        IntentFilter filter = new IntentFilter();
 
         filter.addAction(
                 ScreenCaptureService.ACTION_RESULT
@@ -532,11 +424,7 @@ public class MainActivity extends Activity {
                 );
 
                 statusText.setTextColor(
-                        Color.rgb(
-                                40,
-                                220,
-                                255
-                        )
+                        Color.rgb(40, 220, 255)
                 );
 
             } catch (Exception e) {
@@ -546,11 +434,7 @@ public class MainActivity extends Activity {
                 );
 
                 statusText.setTextColor(
-                        Color.rgb(
-                                255,
-                                70,
-                                85
-                        )
+                        Color.rgb(255, 70, 85)
                 );
 
                 Toast.makeText(
@@ -623,11 +507,7 @@ public class MainActivity extends Activity {
             );
 
             statusText.setTextColor(
-                    Color.rgb(
-                            255,
-                            70,
-                            85
-                    )
+                    Color.rgb(255, 70, 85)
             );
         }
     }
@@ -651,11 +531,7 @@ public class MainActivity extends Activity {
             );
 
             statusText.setTextColor(
-                    Color.rgb(
-                            30,
-                            235,
-                            135
-                    )
+                    Color.rgb(30, 235, 135)
             );
 
         } else {
@@ -679,19 +555,13 @@ public class MainActivity extends Activity {
 
     private void cycleTimeframe() {
 
-        String current =
-                getTimeframe();
+        String current = getTimeframe();
 
         int index = 0;
 
-        for (
-                int i = 0;
-                i < TIMEFRAMES.length;
-                i++
-        ) {
+        for (int i = 0; i < TIMEFRAMES.length; i++) {
 
             if (TIMEFRAMES[i].equals(current)) {
-
                 index = i;
                 break;
             }
@@ -703,23 +573,18 @@ public class MainActivity extends Activity {
             index = 0;
         }
 
-        String next =
-                TIMEFRAMES[index];
+        String next = TIMEFRAMES[index];
 
         getSharedPreferences(
                 "scanner_settings",
                 MODE_PRIVATE
         )
                 .edit()
-                .putString(
-                        "timeframe",
-                        next
-                )
+                .putString("timeframe", next)
                 .apply();
 
         timeframeButton.setText(
-                "TIMEFRAME: " +
-                        next
+                "TIMEFRAME: " + next
         );
 
         Toast.makeText(
@@ -746,26 +611,15 @@ public class MainActivity extends Activity {
             return;
         }
 
-        if (resultCode != RESULT_OK ||
-                data == null) {
+        if (resultCode != RESULT_OK || data == null) {
 
             statusText.setText(
                     "SCREEN CAPTURE CANCELLED"
             );
 
             statusText.setTextColor(
-                    Color.rgb(
-                            255,
-                            70,
-                            85
-                    )
+                    Color.rgb(255, 70, 85)
             );
-
-            Toast.makeText(
-                    this,
-                    "Screen Capture অনুমতি দেওয়া হয়নি",
-                    Toast.LENGTH_LONG
-            ).show();
 
             return;
         }
@@ -816,18 +670,8 @@ public class MainActivity extends Activity {
             );
 
             statusText.setTextColor(
-                    Color.rgb(
-                            255,
-                            70,
-                            85
-                    )
+                    Color.rgb(255, 70, 85)
             );
-
-            Toast.makeText(
-                    this,
-                    "Screen Capture service start হয়নি",
-                    Toast.LENGTH_LONG
-            ).show();
         }
     }
 
