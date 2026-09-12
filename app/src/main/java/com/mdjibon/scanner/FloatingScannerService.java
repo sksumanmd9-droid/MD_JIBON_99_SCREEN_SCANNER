@@ -1,5 +1,8 @@
 package com.mdjibon.scanner;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.Service;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -9,6 +12,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
@@ -19,6 +23,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -39,10 +44,14 @@ public class FloatingScannerService extends Service {
     private int savedX = 20;
     private int savedY = 250;
 
-    private final Handler mainHandler =
-            new Handler();
-
     private boolean scanRunning = false;
+
+    private final Handler mainHandler = new Handler();
+
+    private static final int NOTIFICATION_ID = 2001;
+
+    private static final String CHANNEL_ID =
+            "md_jibon_floating";
 
     // ============================================================
     // SERVICE STATE
@@ -58,40 +67,24 @@ public class FloatingScannerService extends Service {
 
     @Override
     public void onCreate() {
-
         super.onCreate();
 
         running = true;
 
         windowManager =
-                (WindowManager)
-                        getSystemService(
-                                WINDOW_SERVICE
-                        );
-
-        registerScannerReceiver();
+                (WindowManager) getSystemService(
+                        WINDOW_SERVICE
+                );
 
         if (Build.VERSION.SDK_INT >= 26) {
-
+            createNotificationChannel();
             startForeground(
-                    2001,
-                    new android.app.Notification.Builder(
-                            this,
-                            createChannel()
-                    )
-                            .setContentTitle(
-                                    "MD JIBON Scanner"
-                            )
-                            .setContentText(
-                                    "Floating scanner is active"
-                            )
-                            .setSmallIcon(
-                                    android.R.drawable.ic_menu_search
-                            )
-                            .setOngoing(true)
-                            .build()
+                    NOTIFICATION_ID,
+                    createNotification()
             );
         }
+
+        registerScannerReceiver();
 
         if (!Settings.canDrawOverlays(this)) {
 
@@ -102,9 +95,7 @@ public class FloatingScannerService extends Service {
             ).show();
 
             running = false;
-
             stopSelf();
-
             return;
         }
 
@@ -112,39 +103,101 @@ public class FloatingScannerService extends Service {
     }
 
     // ============================================================
-    // NOTIFICATION CHANNEL
+    // NOTIFICATION
     // ============================================================
 
-    private String createChannel() {
+    private void createNotificationChannel() {
 
-        String channelId =
-                "md_jibon_floating";
+        if (Build.VERSION.SDK_INT < 26) {
+            return;
+        }
+
+        NotificationChannel channel =
+                new NotificationChannel(
+                        CHANNEL_ID,
+                        "MD JIBON Floating Scanner",
+                        NotificationManager.IMPORTANCE_LOW
+                );
+
+        channel.setDescription(
+                "MD JIBON floating scanner"
+        );
+
+        NotificationManager manager =
+                (NotificationManager)
+                        getSystemService(
+                                NOTIFICATION_SERVICE
+                        );
+
+        if (manager != null) {
+            manager.createNotificationChannel(channel);
+        }
+    }
+
+    private Notification createNotification() {
 
         if (Build.VERSION.SDK_INT >= 26) {
 
-            android.app.NotificationChannel channel =
-                    new android.app.NotificationChannel(
-                            channelId,
-                            "MD JIBON Floating Scanner",
-                            android.app.NotificationManager
-                                    .IMPORTANCE_LOW
-                    );
+            return new Notification.Builder(
+                    this,
+                    CHANNEL_ID
+            )
+                    .setContentTitle(
+                            "MD JIBON Scanner"
+                    )
+                    .setContentText(
+                            "Floating scanner is active"
+                    )
+                    .setSmallIcon(
+                            android.R.drawable.ic_menu_search
+                    )
+                    .setOngoing(true)
+                    .build();
+        }
 
-            android.app.NotificationManager manager =
-                    (android.app.NotificationManager)
-                            getSystemService(
-                                    NOTIFICATION_SERVICE
-                            );
+        return new Notification.Builder(this)
+                .setContentTitle(
+                        "MD JIBON Scanner"
+                )
+                .setContentText(
+                        "Floating scanner is active"
+                )
+                .setSmallIcon(
+                        android.R.drawable.ic_menu_search
+                )
+                .setOngoing(true)
+                .build();
+    }
 
-            if (manager != null) {
+    // ============================================================
+    // START COMMAND
+    // ============================================================
 
-                manager.createNotificationChannel(
-                        channel
-                );
+    @Override
+    public int onStartCommand(
+            Intent intent,
+            int flags,
+            int startId
+    ) {
+
+        if (intent != null) {
+
+            String action =
+                    intent.getAction();
+
+            /*
+             * ACTION_SCAN বর্তমানে MainActivity/Floating icon
+             * থেকে ScreenCaptureService-এ পাঠানো হয়।
+             *
+             * এখানে কোনো বড় Radar বা পুরোনো scanner UI চালু করা হবে না।
+             */
+            if (ScreenCaptureService.ACTION_STOP.equals(action)) {
+
+                stopSelf();
             }
         }
 
-        return channelId;
+        return START_STICKY;
     }
 
     // ============================================================
@@ -169,9 +222,9 @@ public class FloatingScannerService extends Service {
                         String action =
                                 intent.getAction();
 
-                        // ------------------------------
-                        // PROGRESS
-                        // ------------------------------
+                        // ----------------------------------------
+                        // SCAN PROGRESS
+                        // ----------------------------------------
 
                         if (ScreenCaptureService
                                 .ACTION_PROGRESS
@@ -193,9 +246,9 @@ public class FloatingScannerService extends Service {
                             return;
                         }
 
-                        // ------------------------------
-                        // RESULT
-                        // ------------------------------
+                        // ----------------------------------------
+                        // SCAN RESULT
+                        // ----------------------------------------
 
                         if (ScreenCaptureService
                                 .ACTION_RESULT
@@ -254,21 +307,21 @@ public class FloatingScannerService extends Service {
 
     private int dp(float value) {
 
-        return (int)
-                (
-                        value *
-                                getResources()
-                                        .getDisplayMetrics()
-                                        .density
-                                + 0.5f
-                );
+        return (int) (
+                value *
+                        getResources()
+                                .getDisplayMetrics()
+                                .density
+                        + 0.5f
+        );
     }
 
     // ============================================================
-    // OVERLAY PARAMS
+    // OVERLAY PARAMETERS
     // ============================================================
 
-    private WindowManager.LayoutParams overlayParams() {
+    private WindowManager.LayoutParams
+    overlayParams() {
 
         int type;
 
@@ -287,14 +340,13 @@ public class FloatingScannerService extends Service {
 
         WindowManager.LayoutParams params =
                 new WindowManager.LayoutParams(
-                        WindowManager.LayoutParams.WRAP_CONTENT,
-                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        WindowManager.LayoutParams
+                                .WRAP_CONTENT,
+                        WindowManager.LayoutParams
+                                .WRAP_CONTENT,
                         type,
                         WindowManager.LayoutParams
-                                .FLAG_NOT_FOCUSABLE
-                                |
-                                WindowManager.LayoutParams
-                                .FLAG_LAYOUT_NO_LIMITS,
+                                .FLAG_NOT_FOCUSABLE,
                         PixelFormat.TRANSLUCENT
                 );
 
@@ -322,6 +374,10 @@ public class FloatingScannerService extends Service {
             return;
         }
 
+        if (scanRunning) {
+            return;
+        }
+
         ImageView image =
                 new ImageView(this);
 
@@ -333,19 +389,28 @@ public class FloatingScannerService extends Service {
                                 getPackageName()
                         );
 
-        image.setImageResource(
-                drawableId
-        );
+        /*
+         * Logo drawable না থাকলে default search icon ব্যবহার।
+         * এতে setImageResource(0) error হবে না।
+         */
+        if (drawableId != 0) {
+
+            image.setImageResource(
+                    drawableId
+            );
+
+        } else {
+
+            image.setImageResource(
+                    android.R.drawable.ic_menu_search
+            );
+        }
 
         image.setScaleType(
                 ImageView.ScaleType.CENTER_INSIDE
         );
 
-        /*
-         * ছোট app-এর মতো floating icon
-         */
-        int size =
-                dp(46);
+        int size = dp(46);
 
         image.setLayoutParams(
                 new android.view.ViewGroup.LayoutParams(
@@ -356,7 +421,7 @@ public class FloatingScannerService extends Service {
 
         logoView = image;
 
-        WindowManager.LayoutParams params =
+        final WindowManager.LayoutParams params =
                 overlayParams();
 
         image.setOnTouchListener(
@@ -434,11 +499,8 @@ public class FloatingScannerService extends Service {
 
                             case MotionEvent.ACTION_UP:
 
-                                savedX =
-                                        params.x;
-
-                                savedY =
-                                        params.y;
+                                savedX = params.x;
+                                savedY = params.y;
 
                                 long duration =
                                         System.currentTimeMillis()
@@ -450,16 +512,16 @@ public class FloatingScannerService extends Service {
                                                         event.getRawX()
                                                         - downX
                                         )
-                                        +
-                                        Math.abs(
-                                                (int)
-                                                        event.getRawY()
-                                                        - downY
-                                        );
+                                                +
+                                                Math.abs(
+                                                        (int)
+                                                                event.getRawY()
+                                                                - downY
+                                                );
 
                                 /*
-                                 * শুধু tap করলে scan হবে।
-                                 * drag করলে scan হবে না।
+                                 * Tap হলে scan।
+                                 * Drag হলে scan নয়।
                                  */
                                 if (duration < 350
                                         &&
@@ -517,17 +579,20 @@ public class FloatingScannerService extends Service {
         scanRunning = true;
 
         /*
-         * Floating icon সাময়িকভাবে hide।
+         * Floating icon সাময়িকভাবে remove।
          */
-        removeView(
-                logoView
-        );
+        removeView(logoView);
+        logoView = null;
 
         /*
-         * ছোট scanning animation।
+         * Full-screen transparent scanning layer।
+         * শুধু moving blue band থাকবে।
          */
         createScanView();
 
+        /*
+         * আসল scan request ScreenCaptureService-এ যাবে।
+         */
         Intent scan =
                 new Intent(
                         this,
@@ -557,10 +622,7 @@ public class FloatingScannerService extends Service {
 
             scanRunning = false;
 
-            removeView(
-                    scanView
-            );
-
+            removeView(scanView);
             scanView = null;
 
             createLogo();
@@ -574,28 +636,32 @@ public class FloatingScannerService extends Service {
     }
 
     // ============================================================
-    // SCAN ANIMATION
+    // SCAN VIEW
     // ============================================================
 
     private void createScanView() {
 
+        if (windowManager == null) {
+            return;
+        }
+
+        if (scanView != null) {
+            return;
+        }
+
         scanView =
-                new ScanAnimationView(
-                        this
-                );
+                new ScanAnimationView(this);
 
         WindowManager.LayoutParams params =
                 new WindowManager.LayoutParams();
 
-        /*
-         * পুরো screen transparent থাকবে।
-         * শুধু চলমান blue scanning layer দেখা যাবে।
-         */
         params.width =
-                WindowManager.LayoutParams.MATCH_PARENT;
+                WindowManager.LayoutParams
+                        .MATCH_PARENT;
 
         params.height =
-                WindowManager.LayoutParams.MATCH_PARENT;
+                WindowManager.LayoutParams
+                        .MATCH_PARENT;
 
         if (Build.VERSION.SDK_INT >= 26) {
 
@@ -614,18 +680,18 @@ public class FloatingScannerService extends Service {
                 Gravity.TOP |
                         Gravity.START;
 
+        /*
+         * Screen-এর touch block করবে না।
+         */
         params.flags =
                 WindowManager.LayoutParams
                         .FLAG_NOT_FOCUSABLE
                         |
                         WindowManager.LayoutParams
-                        .FLAG_NOT_TOUCHABLE
+                                .FLAG_NOT_TOUCHABLE
                         |
                         WindowManager.LayoutParams
-                        .FLAG_LAYOUT_IN_SCREEN
-                        |
-                        WindowManager.LayoutParams
-                        .FLAG_LAYOUT_NO_LIMITS;
+                                .FLAG_LAYOUT_IN_SCREEN;
 
         params.format =
                 PixelFormat.TRANSLUCENT;
@@ -640,7 +706,6 @@ public class FloatingScannerService extends Service {
         } catch (Exception e) {
 
             scanView = null;
-
             scanRunning = false;
 
             createLogo();
@@ -659,11 +724,8 @@ public class FloatingScannerService extends Service {
                         Paint.ANTI_ALIAS_FLAG
                 );
 
-        /*
-         * scanning band-এর current position
-         */
         private float scanY =
-                -dp(70);
+                -dp(110);
 
         private int progress = 0;
 
@@ -681,20 +743,15 @@ public class FloatingScannerService extends Service {
                         }
 
                         /*
-                         * উপর থেকে নিচে চলবে।
+                         * উপর থেকে নিচে moving scan band।
                          */
-                        scanY +=
-                                dp(9);
+                        scanY += dp(8);
 
                         if (scanY >
                                 getHeight()) {
 
-                            /*
-                             * analysis যদি একটু বেশি সময় নেয়,
-                             * আবার উপর থেকে শুরু করবে।
-                             */
                             scanY =
-                                    -dp(70);
+                                    -dp(110);
                         }
 
                         invalidate();
@@ -706,7 +763,7 @@ public class FloatingScannerService extends Service {
                     }
                 };
 
-        public ScanAnimationView(
+        ScanAnimationView(
                 Context context
         ) {
 
@@ -722,7 +779,7 @@ public class FloatingScannerService extends Service {
             );
         }
 
-        public void setProgress(
+        void setProgress(
                 int value
         ) {
 
@@ -738,10 +795,9 @@ public class FloatingScannerService extends Service {
             invalidate();
         }
 
-        public void stopAnimation() {
+        void stopAnimation() {
 
-            animationRunning =
-                    false;
+            animationRunning = false;
 
             removeCallbacks(
                     animationRunnable
@@ -763,13 +819,14 @@ public class FloatingScannerService extends Service {
 
             /*
              * ====================================================
-             * BLUE SCANNING COVER
+             * MOVING BLUE SCANNING COVER
              * ====================================================
              *
-             * এটি মাঝখানে স্থির কোনো দাগ নয়।
+             * কোনো বড় Radar নেই।
+             * কোনো Arrow নেই।
+             * কোনো permanent center line নেই।
              *
-             * উপর থেকে নিচে একটি translucent blue
-             * scanning area চলে যাবে।
+             * শুধু উপর থেকে নিচে translucent blue band।
              */
 
             float bandHeight =
@@ -782,9 +839,10 @@ public class FloatingScannerService extends Service {
                     scanY +
                             bandHeight;
 
-            /*
-             * বড় soft blue scanning glow।
-             */
+            // --------------------------------------------
+            // Soft blue glow
+            // --------------------------------------------
+
             Paint glow =
                     new Paint(
                             Paint.ANTI_ALIAS_FLAG
@@ -792,7 +850,7 @@ public class FloatingScannerService extends Service {
 
             glow.setColor(
                     Color.argb(
-                            32,
+                            30,
                             20,
                             180,
                             255
@@ -807,9 +865,10 @@ public class FloatingScannerService extends Service {
                     glow
             );
 
-            /*
-             * scanning-এর মাঝের উজ্জ্বল অংশ।
-             */
+            // --------------------------------------------
+            // Middle blue layer
+            // --------------------------------------------
+
             Paint middle =
                     new Paint(
                             Paint.ANTI_ALIAS_FLAG
@@ -817,7 +876,7 @@ public class FloatingScannerService extends Service {
 
             middle.setColor(
                     Color.argb(
-                            72,
+                            65,
                             30,
                             190,
                             255
@@ -826,11 +885,11 @@ public class FloatingScannerService extends Service {
 
             float middleTop =
                     scanY +
-                            dp(40);
+                            dp(38);
 
             float middleBottom =
                     scanY +
-                            dp(70);
+                            dp(72);
 
             canvas.drawRect(
                     0,
@@ -840,12 +899,10 @@ public class FloatingScannerService extends Service {
                     middle
             );
 
-            /*
-             * একটি খুব পাতলা bright blue edge।
-             *
-             * এটা স্থায়ী center line নয়।
-             * scanning band-এর সঙ্গে উপর থেকে নিচে যায়।
-             */
+            // --------------------------------------------
+            // Moving bright edge
+            // --------------------------------------------
+
             Paint edge =
                     new Paint(
                             Paint.ANTI_ALIAS_FLAG
@@ -853,7 +910,7 @@ public class FloatingScannerService extends Service {
 
             edge.setColor(
                     Color.argb(
-                            190,
+                            180,
                             30,
                             210,
                             255
@@ -876,11 +933,12 @@ public class FloatingScannerService extends Service {
                     edge
             );
 
-            /*
-             * Progress indicator খুব ছোট করে।
-             * কোনো বড় text নেই।
-             */
-            if (progress > 0 &&
+            // --------------------------------------------
+            // Small progress bar
+            // --------------------------------------------
+
+            if (progress > 0
+                    &&
                     progress < 100) {
 
                 Paint progressPaint =
@@ -926,35 +984,32 @@ public class FloatingScannerService extends Service {
 
         scanRunning = false;
 
-        /*
-         * Scan animation বন্ধ।
-         */
+        // --------------------------------------------
+        // Stop scanning animation
+        // --------------------------------------------
+
         if (scanView != null) {
 
             scanView.stopAnimation();
 
-            removeView(
-                    scanView
-            );
+            removeView(scanView);
 
             scanView = null;
         }
 
-        /*
-         * পুরোনো result থাকলে remove।
-         */
-        removeView(
-                resultView
-        );
+        // --------------------------------------------
+        // Remove old result
+        // --------------------------------------------
+
+        removeView(resultView);
+        resultView = null;
 
         if (signal == null) {
-
-            signal =
-                    "NO TRADE";
+            signal = "NO TRADE";
         }
 
         /*
-         * Invalid signal হলে NO TRADE।
+         * শুধু valid signal allow।
          */
         if (!"UP".equals(signal)
                 &&
@@ -962,22 +1017,30 @@ public class FloatingScannerService extends Service {
                 &&
                 !"NO TRADE".equals(signal)) {
 
-            signal =
-                    "NO TRADE";
+            signal = "NO TRADE";
         }
 
         /*
-         * --------------------------------------------------------
-         * ছোট result container
-         * --------------------------------------------------------
+         * Confidence 0-100-এর মধ্যে।
          */
-        android.widget.LinearLayout container =
-                new android.widget.LinearLayout(
-                        this
+        confidence =
+                Math.max(
+                        0,
+                        Math.min(
+                                100,
+                                confidence
+                        )
                 );
 
+        // ========================================================
+        // RESULT CONTAINER
+        // ========================================================
+
+        LinearLayout container =
+                new LinearLayout(this);
+
         container.setOrientation(
-                android.widget.LinearLayout.HORIZONTAL
+                LinearLayout.HORIZONTAL
         );
 
         container.setGravity(
@@ -1061,17 +1124,25 @@ public class FloatingScannerService extends Service {
                                 getPackageName()
                         );
 
-        icon.setImageResource(
-                drawableId
-        );
+        if (drawableId != 0) {
+
+            icon.setImageResource(
+                    drawableId
+            );
+
+        } else {
+
+            icon.setImageResource(
+                    android.R.drawable.ic_menu_search
+            );
+        }
 
         icon.setScaleType(
                 ImageView.ScaleType.CENTER_INSIDE
         );
 
-        android.widget.LinearLayout.LayoutParams
-                iconParams =
-                new android.widget.LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams iconParams =
+                new LinearLayout.LayoutParams(
                         dp(34),
                         dp(34)
                 );
@@ -1085,7 +1156,7 @@ public class FloatingScannerService extends Service {
         );
 
         // ========================================================
-        // SIGNAL TEXT
+        // RESULT TEXT
         // ========================================================
 
         TextView resultText =
@@ -1125,44 +1196,35 @@ public class FloatingScannerService extends Service {
 
         } else {
 
-            text =
-                    "WAIT";
+            text = "WAIT";
 
             resultText.setTextColor(
                     Color.WHITE
             );
         }
 
-        resultText.setText(
-                text
-        );
+        resultText.setText(text);
 
-        /*
-         * ছোট লেখা।
-         */
-        resultText.setTextSize(
-                15
-        );
+        resultText.setTextSize(15);
 
         resultText.setGravity(
                 Gravity.CENTER_VERTICAL
         );
 
         resultText.setTypeface(
-                android.graphics.Typeface.DEFAULT,
-                android.graphics.Typeface.BOLD
+                Typeface.DEFAULT,
+                Typeface.BOLD
         );
 
         container.addView(
                 resultText,
-                new android.widget.LinearLayout.LayoutParams(
+                new LinearLayout.LayoutParams(
                         dp(95),
                         dp(40)
                 )
         );
 
-        resultView =
-                container;
+        resultView = container;
 
         // ========================================================
         // RESULT POSITION
@@ -1171,15 +1233,15 @@ public class FloatingScannerService extends Service {
         WindowManager.LayoutParams params =
                 overlayParams();
 
-        /*
-         * Result icon-এর কাছাকাছি থাকবে।
-         */
         params.width =
                 dp(145);
 
         params.height =
                 dp(50);
 
+        /*
+         * Result floating icon-এর একই জায়গায় থাকবে।
+         */
         params.x =
                 Math.max(
                         0,
@@ -1199,7 +1261,7 @@ public class FloatingScannerService extends Service {
                     params
             );
 
-        } catch (Exception ignored) {
+        } catch (Exception e) {
 
             resultView = null;
 
@@ -1208,9 +1270,10 @@ public class FloatingScannerService extends Service {
             return;
         }
 
-        /*
-         * Result 3 seconds থাকবে।
-         */
+        // ========================================================
+        // RESULT SHOW FOR 3 SECONDS
+        // ========================================================
+
         final View currentResult =
                 resultView;
 
@@ -1224,8 +1287,7 @@ public class FloatingScannerService extends Service {
                     if (resultView ==
                             currentResult) {
 
-                        resultView =
-                                null;
+                        resultView = null;
                     }
 
                     /*
@@ -1246,7 +1308,8 @@ public class FloatingScannerService extends Service {
             View view
     ) {
 
-        if (view == null ||
+        if (view == null
+                ||
                 windowManager == null) {
 
             return;
@@ -1296,17 +1359,9 @@ public class FloatingScannerService extends Service {
             receiver = null;
         }
 
-        removeView(
-                logoView
-        );
-
-        removeView(
-                scanView
-        );
-
-        removeView(
-                resultView
-        );
+        removeView(logoView);
+        removeView(scanView);
+        removeView(resultView);
 
         logoView = null;
         scanView = null;
@@ -1324,7 +1379,6 @@ public class FloatingScannerService extends Service {
     public IBinder onBind(
             Intent intent
     ) {
-
         return null;
     }
 }
