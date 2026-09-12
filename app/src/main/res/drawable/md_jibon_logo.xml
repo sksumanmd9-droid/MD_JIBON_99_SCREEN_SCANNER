@@ -2,96 +2,49 @@
 
 <vector
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="512dp"
-    android:height="512dp"
-    android:viewportWidth="512"
-    android:viewportHeight="512">
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
 
     <path
-        android:fillColor="#02091A"
-        android:pathData="M70,0 L442,0 C480,0 512,32 512,70 L512,442 C512,480 480,512 442,512 L70,512 C32,512 0,480 0,442 L0,70 C0,32 32,0 70,0 Z"/>
-
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#19AFFF"
-        android:strokeWidth="9"
-        android:pathData="M256,55 A201,201 0,1 0,256,457 A201,201 0,1 0,256,55"/>
-
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#0756A5"
-        android:strokeWidth="5"
-        android:pathData="M256,120 A136,136 0,1 0,256,392 A136,136 0,1 0,256,120"/>
-
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#064483"
-        android:strokeWidth="4"
-        android:pathData="M256,175 A81,81 0,1 0,256,337 A81,81 0,1 0,256,175"/>
+        android:fillColor="#08121E"
+        android:pathData="
+            M12,2
+            L36,2
+            C41.5,2 46,6.5 46,12
+            L46,36
+            C46,41.5 41.5,46 36,46
+            L12,46
+            C6.5,46 2,41.5 2,36
+            L2,12
+            C2,6.5 6.5,2 12,2
+            Z" />
 
     <path
         android:fillColor="@android:color/transparent"
-        android:strokeColor="#075CA8"
-        android:strokeWidth="4"
-        android:pathData="M256,55 L256,457"/>
+        android:strokeColor="#28DCFF"
+        android:strokeWidth="2.5"
+        android:pathData="
+            M24,9
+            A15,15 0,1 0,24,39
+            A15,15 0,1 0,24,9" />
 
     <path
         android:fillColor="@android:color/transparent"
-        android:strokeColor="#075CA8"
-        android:strokeWidth="4"
-        android:pathData="M55,256 L457,256"/>
+        android:strokeColor="#28DCFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="
+            M11,24
+            L37,24" />
 
     <path
-        android:fillColor="#087BFF"
-        android:fillAlpha="0.18"
-        android:pathData="M256,256 L397,115 A201,201 0,0 0,256,55 Z"/>
-
-    <path
-        android:fillColor="#0B5FD7"
-        android:pathData="M256,238 A18,18 0,1 0,256,274 A18,18 0,1 0,256,238"/>
-
-    <path
-        android:fillColor="#16C8DD"
-        android:pathData="M92,390 L132,430 L225,337 L267,379 L310,336 L269,295 L225,338 L184,297 Z"/>
-
-    <path
-        android:fillColor="#168BFF"
-        android:pathData="M210,341 L270,281 L244,255 L409,211 L365,376 L339,349 L300,389 Z"/>
-
-    <path
-        android:fillColor="#1DB9FF"
-        android:pathData="M112,392 L137,417 L225,329 L245,349 L263,331 L225,293 Z"/>
-
-    <path
-        android:fillColor="#19E6FF"
-        android:pathData="M151,145 A10,10 0,1 0,151,165 A10,10 0,1 0,151,145"/>
-
-    <path
-        android:fillColor="#19E6FF"
-        android:pathData="M369,125 A10,10 0,1 0,369,145 A10,10 0,1 0,369,125"/>
-
-    <path
-        android:fillColor="#19E6FF"
-        android:pathData="M138,322 A9,9 0,1 0,138,340 A9,9 0,1 0,138,322"/>
-
-    <path
-        android:fillColor="#19E6FF"
-        android:pathData="M364,330 A9,9 0,1 0,364,348 A9,9 0,1 0,364,330"/>
-
-    <path
-        android:fillColor="#19BFFF"
-        android:pathData="M251,55 L261,55 L261,83 L251,83 Z"/>
-
-    <path
-        android:fillColor="#19BFFF"
-        android:pathData="M251,429 L261,429 L261,457 L251,457 Z"/>
-
-    <path
-        android:fillColor="#19BFFF"
-        android:pathData="M55,251 L83,251 L83,261 L55,261 Z"/>
-
-    <path
-        android:fillColor="#19BFFF"
-        android:pathData="M429,251 L457,251 L457,261 L429,261 Z"/>
+        android:fillColor="#28DCFF"
+        android:pathData="
+            M24,20
+            A4,4 0,1 0,24,28
+            A4,4 0,1 0,24,20
+            Z" />
 
 </vector>
