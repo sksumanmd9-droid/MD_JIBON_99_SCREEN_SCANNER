@@ -92,6 +92,23 @@ public class ScreenCaptureService extends Service {
             return START_NOT_STICKY;
         }
 
+        // ✅ Android 14+ এর জন্য সবচেয়ে গুরুত্বপূর্ণ:
+        // onStartCommand-এর একদম শুরুতে startForeground() কল করতে হবে।
+        try {
+            Notification notification = createNotification();
+
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                );
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+        } catch (Exception ignored) {
+        }
+
         String action = intent.getAction();
 
         if (ACTION_STOP.equals(action)) {
@@ -125,7 +142,7 @@ public class ScreenCaptureService extends Service {
     }
 
     // ============================================================
-    // START CAPTURE — Android 14+ ফিক্স
+    // START CAPTURE — Android 14+ কঠোর ফিক্স
     // ============================================================
 
     private void startCapture(int resultCode, Intent data) {
@@ -136,18 +153,6 @@ public class ScreenCaptureService extends Service {
         }
 
         try {
-
-            Notification notification = createNotification();
-
-            if (Build.VERSION.SDK_INT >= 29) {
-                startForeground(
-                        NOTIFICATION_ID,
-                        notification,
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                );
-            } else {
-                startForeground(NOTIFICATION_ID, notification);
-            }
 
             MediaProjectionManager manager =
                     (MediaProjectionManager)
@@ -186,9 +191,8 @@ public class ScreenCaptureService extends Service {
                 return;
             }
 
-            // ✅ Android 14+ ফিক্স:
-            // createVirtualDisplay আগে, ImageReader পরে।
-
+            // ✅ সবচেয়ে গুরুত্বপূর্ণ ধাপ:
+            // ImageReader তৈরি করে সাথে সাথে VirtualDisplay তৈরি করা
             imageReader = ImageReader.newInstance(
                     screenWidth,
                     screenHeight,
@@ -201,6 +205,8 @@ public class ScreenCaptureService extends Service {
                     mainHandler
             );
 
+            // ✅ Android 14+ এ createVirtualDisplay() কল করার আগে
+            // অবশ্যই এটা একটা ট্রাই-ক্যাচে রাখতে হবে
             virtualDisplay = mediaProjection.createVirtualDisplay(
                     "MD JIBON Scanner",
                     screenWidth,
@@ -477,6 +483,7 @@ public class ScreenCaptureService extends Service {
                 .setContentText("Screen capture is active")
                 .setSmallIcon(android.R.drawable.ic_menu_view)
                 .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
     }
 
