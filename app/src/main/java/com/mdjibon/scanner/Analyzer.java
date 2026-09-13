@@ -189,7 +189,7 @@ public final class Analyzer {
             out.timeframe = "1 MIN";
 
             out.checks.add("REAL PIXEL CANDLE EXTRACTION");
-            out.checks.add("LEFT â†’ RIGHT CHRONOLOGICAL ORDER");
+            out.checks.add("LEFT TO RIGHT CHRONOLOGICAL ORDER");
             out.checks.add("NO SYNTHETIC CANDLE FALLBACK");
             out.checks.add("1000 PARAMETERIZED PROBES");
             out.checks.add(String.format(Locale.US,
@@ -303,11 +303,11 @@ public final class Analyzer {
 
             // Screen y increases downward. Price therefore increases upward.
             if (c.green) {
-                c.open = -bodyTop;
-                c.close = -bodyBottom;
-            } else {
                 c.open = -bodyBottom;
                 c.close = -bodyTop;
+            } else {
+                c.open = -bodyTop;
+                c.close = -bodyBottom;
             }
 
             candles.add(c);
@@ -463,8 +463,8 @@ public final class Analyzer {
                     out.set(out.size() - 1, c);
                 } else {
                     // Extend wick information conservatively.
-                    last.high = Math.min(last.high, c.high);
-                    last.low = Math.max(last.low, c.low);
+                    last.high = Math.max(last.high, c.high);
+                    last.low = Math.min(last.low, c.low);
                 }
             } else {
                 out.add(c);
@@ -703,15 +703,28 @@ public final class Analyzer {
         n = Math.min(n, c.size() - 1);
         Candle last = c.get(c.size() - 1);
 
-        double hi = recentHigh(c, n + 1);
-        double lo = recentLow(c, n + 1);
-        double pos = normalize(last.close - lo, hi - lo);
+        // Use the candles BEFORE the current candle for breakout levels.
+        int lookback = Math.max(1, Math.min(n, c.size() - 1));
+        double hi = Double.NEGATIVE_INFINITY;
+        double lo = Double.POSITIVE_INFINITY;
+        for (int i = c.size() - 1 - lookback; i < c.size() - 1; i++) {
+            if (i < 0) continue;
+            hi = Math.max(hi, c.get(i).high);
+            lo = Math.min(lo, c.get(i).low);
+        }
+        if (!Double.isFinite(hi) || !Double.isFinite(lo)) {
+            return 0.0;
+        }
+
+        double levelRange = Math.max(hi - lo, 1e-9);
+        double pos = normalize(last.close - lo, levelRange);
 
         double value = 0.0;
+        double buffer = levelRange * Math.max(0.01, threshold * 0.15);
 
         // Breakout evidence.
-        if (last.close >= hi * (1.0 - threshold * 0.15)) value += 0.40;
-        if (last.close <= lo * (1.0 + threshold * 0.15)) value -= 0.40;
+        if (last.close >= hi - buffer) value += 0.40;
+        if (last.close <= lo + buffer) value -= 0.40;
 
         // Mean-reversion near extremes.
         if (pos > 0.92) value -= 0.35;
