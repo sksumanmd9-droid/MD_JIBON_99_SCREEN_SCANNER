@@ -835,7 +835,7 @@ public final class Analyzer {
     private static int falseBreakout(List<Candle> c) {
         if (c.size() < 3) return 0;
         Candle x = lastCandle(c
-                              
+  
 // ============================================================
 // ATR / RANGE (91-100)
 // ============================================================
