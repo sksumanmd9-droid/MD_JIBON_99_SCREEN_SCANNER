@@ -49,10 +49,6 @@ public class ScreenCaptureService extends Service {
     public static final String ACTION_STOP =
             "com.mdjibon.scanner.ACTION_STOP";
 
-    /*
-     * IMPORTANT:
-     * MainActivity.java এই constant ব্যবহার করে।
-     */
     public static final String ACTION_ERROR =
             "com.mdjibon.scanner.ACTION_ERROR";
 
@@ -60,43 +56,32 @@ public class ScreenCaptureService extends Service {
     // NOTIFICATION
     // ============================================================
 
-    private static final String CHANNEL_ID =
-            "md_jibon_scanner";
-
-    private static final int NOTIFICATION_ID =
-            1001;
+    private static final String CHANNEL_ID = "md_jibon_scanner";
+    private static final int NOTIFICATION_ID = 1001;
 
     // ============================================================
     // STATE
     // ============================================================
 
-    private static volatile boolean captureActive =
-            false;
-
-    private static volatile boolean scanning =
-            false;
+    private static volatile boolean captureActive = false;
+    private static volatile boolean scanning = false;
 
     // ============================================================
     // MEDIA PROJECTION
     // ============================================================
 
     private MediaProjection mediaProjection;
-
     private VirtualDisplay virtualDisplay;
-
     private ImageReader imageReader;
-
     private Bitmap latestFrame;
 
-    private final Object frameLock =
-            new Object();
+    private final Object frameLock = new Object();
 
     // ============================================================
     // THREADS
     // ============================================================
 
     private Handler mainHandler;
-
     private ExecutorService executor;
 
     // ============================================================
@@ -104,25 +89,20 @@ public class ScreenCaptureService extends Service {
     // ============================================================
 
     private int screenWidth;
-
     private int screenHeight;
-
     private int screenDensity;
 
-    private long lastFrameTime =
-            0L;
+    private long lastFrameTime = 0L;
 
     // ============================================================
     // CALLBACK
     // ============================================================
 
-    private final MediaProjection.Callback
-            projectionCallback =
+    private final MediaProjection.Callback projectionCallback =
             new MediaProjection.Callback() {
 
                 @Override
                 public void onStop() {
-
                     stopCaptureInternal();
                 }
             };
@@ -132,7 +112,6 @@ public class ScreenCaptureService extends Service {
     // ============================================================
 
     public static boolean isCaptureActive() {
-
         return captureActive;
     }
 
@@ -145,13 +124,8 @@ public class ScreenCaptureService extends Service {
 
         super.onCreate();
 
-        mainHandler =
-                new Handler(
-                        Looper.getMainLooper()
-                );
-
-        executor =
-                Executors.newSingleThreadExecutor();
+        mainHandler = new Handler(Looper.getMainLooper());
+        executor = Executors.newSingleThreadExecutor();
 
         createNotificationChannel();
     }
@@ -161,36 +135,21 @@ public class ScreenCaptureService extends Service {
     // ============================================================
 
     @Override
-    public int onStartCommand(
-            Intent intent,
-            int flags,
-            int startId
-    ) {
+    public int onStartCommand(Intent intent, int flags, int startId) {
 
-        /*
-         * Android service restart করলে পুরনো MediaProjection
-         * permission data পাওয়া যাবে না।
-         *
-         * তাই null intent এ শুধু service alive রাখা হবে।
-         */
         if (intent == null) {
-
             return START_NOT_STICKY;
         }
 
-        String action =
-                intent.getAction();
+        String action = intent.getAction();
 
         // ========================================================
         // STOP
         // ========================================================
 
         if (ACTION_STOP.equals(action)) {
-
             stopCaptureInternal();
-
             stopSelf();
-
             return START_NOT_STICKY;
         }
 
@@ -199,9 +158,7 @@ public class ScreenCaptureService extends Service {
         // ========================================================
 
         if (ACTION_SCAN.equals(action)) {
-
             requestScan();
-
             return START_STICKY;
         }
 
@@ -211,25 +168,11 @@ public class ScreenCaptureService extends Service {
 
         if (intent.hasExtra("data")) {
 
-            int resultCode =
-                    intent.getIntExtra(
-                            "resultCode",
-                            -1
-                    );
+            int resultCode = intent.getIntExtra("resultCode", -1);
+            Intent data = getParcelableIntent(intent, "data");
 
-            Intent data =
-                    getParcelableIntent(
-                            intent,
-                            "data"
-                    );
-
-            if (data != null &&
-                    resultCode != -1) {
-
-                startCapture(
-                        resultCode,
-                        data
-                );
+            if (data != null && resultCode != -1) {
+                startCapture(resultCode, data);
             }
         }
 
@@ -240,23 +183,12 @@ public class ScreenCaptureService extends Service {
     // SAFE PARCELABLE INTENT
     // ============================================================
 
-    private Intent getParcelableIntent(
-            Intent source,
-            String key
-    ) {
+    private Intent getParcelableIntent(Intent source, String key) {
 
         if (Build.VERSION.SDK_INT >= 33) {
-
-            return source.getParcelableExtra(
-                    key,
-                    Intent.class
-            );
-
+            return source.getParcelableExtra(key, Intent.class);
         } else {
-
-            return source.getParcelableExtra(
-                    key
-            );
+            return source.getParcelableExtra(key);
         }
     }
 
@@ -264,215 +196,117 @@ public class ScreenCaptureService extends Service {
     // START CAPTURE
     // ============================================================
 
-    private void startCapture(
-            int resultCode,
-            Intent data
-    ) {
+    private void startCapture(int resultCode, Intent data) {
 
-        /*
-         * Already active হলে নতুন MediaProjection
-         * তৈরি করা হবে না।
-         */
         if (captureActive) {
-
             sendState(true);
-
             return;
         }
 
         try {
 
-            // ====================================================
-            // ANDROID MEDIA PROJECTION FOREGROUND SERVICE
-            // ====================================================
-
-            Notification notification =
-                    createNotification();
+            Notification notification = createNotification();
 
             if (Build.VERSION.SDK_INT >= 29) {
 
                 startForeground(
                         NOTIFICATION_ID,
                         notification,
-                        ServiceInfo
-                                .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
                 );
 
             } else {
 
-                startForeground(
-                        NOTIFICATION_ID,
-                        notification
-                );
+                startForeground(NOTIFICATION_ID, notification);
             }
-
-            // ====================================================
-            // MEDIA PROJECTION MANAGER
-            // ====================================================
 
             MediaProjectionManager manager =
                     (MediaProjectionManager)
-                            getSystemService(
-                                    MEDIA_PROJECTION_SERVICE
-                            );
+                            getSystemService(MEDIA_PROJECTION_SERVICE);
 
             if (manager == null) {
 
                 captureActive = false;
-
                 sendState(false);
-
-                sendError(
-                        "MEDIA PROJECTION MANAGER UNAVAILABLE"
-                );
-
+                sendError("MEDIA PROJECTION MANAGER UNAVAILABLE");
                 return;
             }
 
-            // ====================================================
-            // GET MEDIA PROJECTION
-            // ====================================================
-
-            mediaProjection =
-                    manager.getMediaProjection(
-                            resultCode,
-                            data
-                    );
+            mediaProjection = manager.getMediaProjection(resultCode, data);
 
             if (mediaProjection == null) {
 
                 captureActive = false;
-
                 sendState(false);
-
-                sendError(
-                        "MEDIA PROJECTION UNAVAILABLE"
-                );
-
+                sendError("MEDIA PROJECTION UNAVAILABLE");
                 return;
             }
 
-            // ====================================================
-            // REGISTER CALLBACK
-            // ====================================================
-
-            mediaProjection.registerCallback(
-                    projectionCallback,
-                    mainHandler
-            );
-
-            // ====================================================
-            // DISPLAY METRICS
-            // ====================================================
+            mediaProjection.registerCallback(projectionCallback, mainHandler);
 
             android.util.DisplayMetrics metrics =
-                    getResources()
-                            .getDisplayMetrics();
+                    getResources().getDisplayMetrics();
 
-            screenWidth =
-                    metrics.widthPixels;
+            screenWidth = metrics.widthPixels;
+            screenHeight = metrics.heightPixels;
+            screenDensity = metrics.densityDpi;
 
-            screenHeight =
-                    metrics.heightPixels;
-
-            screenDensity =
-                    metrics.densityDpi;
-
-            if (screenWidth <= 0 ||
-                    screenHeight <= 0) {
+            if (screenWidth <= 0 || screenHeight <= 0) {
 
                 captureActive = false;
-
                 sendState(false);
-
-                sendError(
-                        "INVALID SCREEN SIZE"
-                );
-
+                sendError("INVALID SCREEN SIZE");
                 stopCaptureObjects();
-
                 return;
             }
 
-            // ====================================================
-            // IMAGE READER
-            // ====================================================
-
-            imageReader =
-                    ImageReader.newInstance(
-                            screenWidth,
-                            screenHeight,
-                            PixelFormat.RGBA_8888,
-                            3
-                    );
+            imageReader = ImageReader.newInstance(
+                    screenWidth,
+                    screenHeight,
+                    PixelFormat.RGBA_8888,
+                    3
+            );
 
             imageReader.setOnImageAvailableListener(
                     reader -> copyLatestImage(reader),
                     mainHandler
             );
 
-            // ====================================================
-            // VIRTUAL DISPLAY
-            // ====================================================
-
-            virtualDisplay =
-                    mediaProjection.createVirtualDisplay(
-                            "MD JIBON Scanner",
-                            screenWidth,
-                            screenHeight,
-                            screenDensity,
-                            DisplayManager
-                                    .VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                            imageReader.getSurface(),
-                            null,
-                            mainHandler
-                    );
+            virtualDisplay = mediaProjection.createVirtualDisplay(
+                    "MD JIBON Scanner",
+                    screenWidth,
+                    screenHeight,
+                    screenDensity,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    imageReader.getSurface(),
+                    null,
+                    mainHandler
+            );
 
             if (virtualDisplay == null) {
 
                 captureActive = false;
-
                 sendState(false);
-
-                sendError(
-                        "VIRTUAL DISPLAY FAILED"
-                );
-
+                sendError("VIRTUAL DISPLAY FAILED");
                 stopCaptureObjects();
-
                 return;
             }
 
-            // ====================================================
-            // CAPTURE IS REALLY READY
-            // ====================================================
-
             captureActive = true;
-
             sendState(true);
 
         } catch (SecurityException e) {
 
             captureActive = false;
-
             sendState(false);
-
-            sendError(
-                    "SCREEN CAPTURE SECURITY ERROR"
-            );
-
+            sendError("SCREEN CAPTURE SECURITY ERROR");
             stopCaptureObjects();
 
         } catch (Exception e) {
 
             captureActive = false;
-
             sendState(false);
-
-            sendError(
-                    "SCREEN CAPTURE START FAILED"
-            );
-
+            sendError("SCREEN CAPTURE START FAILED");
             stopCaptureObjects();
         }
     }
@@ -481,30 +315,21 @@ public class ScreenCaptureService extends Service {
     // COPY LATEST IMAGE
     // ============================================================
 
-    private void copyLatestImage(
-            ImageReader reader
-    ) {
+    private void copyLatestImage(ImageReader reader) {
 
-        long now =
-                System.currentTimeMillis();
+        long now = System.currentTimeMillis();
 
-        /*
-         * প্রতি 100ms-এর বেশি ঘন ঘন bitmap তৈরি করব না।
-         */
-        if (now - lastFrameTime < 100) {
+        // প্রতি 80ms-এর বেশি ঘন ঘন bitmap তৈরি করব না
+        if (now - lastFrameTime < 80) {
 
             Image old = null;
 
             try {
-
-                old =
-                        reader.acquireLatestImage();
-
+                old = reader.acquireLatestImage();
             } catch (Exception ignored) {
             }
 
             if (old != null) {
-
                 old.close();
             }
 
@@ -517,81 +342,49 @@ public class ScreenCaptureService extends Service {
 
         try {
 
-            image =
-                    reader.acquireLatestImage();
+            image = reader.acquireLatestImage();
 
-            if (image == null) {
+            if (image == null) return;
 
-                return;
-            }
+            Image.Plane[] planes = image.getPlanes();
 
-            Image.Plane[] planes =
-                    image.getPlanes();
+            if (planes == null || planes.length == 0) return;
 
-            if (planes == null ||
-                    planes.length == 0) {
+            ByteBuffer buffer = planes[0].getBuffer();
 
-                return;
-            }
+            int pixelStride = planes[0].getPixelStride();
+            int rowStride = planes[0].getRowStride();
 
-            ByteBuffer buffer =
-                    planes[0].getBuffer();
+            int rowPadding = rowStride - pixelStride * screenWidth;
 
-            int pixelStride =
-                    planes[0].getPixelStride();
+            int bitmapWidth = screenWidth +
+                    rowPadding / Math.max(1, pixelStride);
 
-            int rowStride =
-                    planes[0].getRowStride();
-
-            int rowPadding =
-                    rowStride -
-                            pixelStride *
-                                    screenWidth;
-
-            int bitmapWidth =
-                    screenWidth +
-                            rowPadding /
-                                    Math.max(
-                                            1,
-                                            pixelStride
-                                    );
-
-            Bitmap raw =
-                    Bitmap.createBitmap(
-                            bitmapWidth,
-                            screenHeight,
-                            Bitmap.Config.ARGB_8888
-                    );
-
-            raw.copyPixelsFromBuffer(
-                    buffer
+            Bitmap raw = Bitmap.createBitmap(
+                    bitmapWidth,
+                    screenHeight,
+                    Bitmap.Config.ARGB_8888
             );
+
+            raw.copyPixelsFromBuffer(buffer);
 
             Bitmap cropped;
 
             if (bitmapWidth != screenWidth) {
 
-                cropped =
-                        Bitmap.createBitmap(
-                                raw,
-                                0,
-                                0,
-                                screenWidth,
-                                screenHeight
-                        );
+                cropped = Bitmap.createBitmap(
+                        raw, 0, 0, screenWidth, screenHeight
+                );
 
                 raw.recycle();
 
             } else {
-
                 cropped = raw;
             }
 
             synchronized (frameLock) {
 
-                if (latestFrame != null &&
-                        !latestFrame.isRecycled()) {
-
+                if (latestFrame != null && !latestFrame.isRecycled()) {
                     latestFrame.recycle();
                 }
 
@@ -603,7 +396,6 @@ public class ScreenCaptureService extends Service {
         } finally {
 
             if (image != null) {
-
                 image.close();
             }
         }
@@ -617,245 +409,186 @@ public class ScreenCaptureService extends Service {
 
         synchronized (frameLock) {
 
-            if (latestFrame == null ||
-                    latestFrame.isRecycled()) {
-
+            if (latestFrame == null || latestFrame.isRecycled()) {
                 return null;
             }
 
             try {
-
-                return latestFrame.copy(
-                        Bitmap.Config.ARGB_8888,
-                        false
-                );
-
+                return latestFrame.copy(Bitmap.Config.ARGB_8888, false);
             } catch (Exception e) {
-
                 return null;
             }
         }
     }
 
     // ============================================================
-    // REQUEST SCAN
+    // REQUEST SCAN (ফ্রেম না থাকলে অপেক্ষা করে)
     // ============================================================
 
     private void requestScan() {
 
         if (!captureActive) {
 
-            sendResult(
-                    "NO TRADE",
-                    0.0,
-                    0.0,
-                    0,
-                    0,
-                    "UNKNOWN"
-            );
-
+            sendResult("NO TRADE", 0, 0, "UNKNOWN");
             return;
         }
 
-        if (scanning) {
-
-            return;
-        }
-
-        final Bitmap frame =
-                getFrameCopy();
-
-        if (frame == null) {
-
-            sendResult(
-                    "NO TRADE",
-                    0.0,
-                    0.0,
-                    0,
-                    0,
-                    "UNKNOWN"
-            );
-
-            return;
-        }
+        if (scanning) return;
 
         scanning = true;
 
         sendProgress(0);
 
-        executor.execute(
-                () -> {
+        executor.execute(() -> {
 
-                    Analyzer.Result result;
+            // ================================================
+            // ১ সেকেন্ড পর্যন্ত অপেক্ষা করুন ফ্রেম আসার জন্য
+            // ================================================
 
-                    try {
+            Bitmap frame = null;
 
-                        /*
-                         * আপনার আসল Analyzer.java।
-                         *
-                         * Analyzer.java পরিবর্তন করা হয়নি।
-                         */
-                        result =
-                                Analyzer.analyze(
-                                        frame
-                                );
+            for (int i = 0; i < 10; i++) {
 
-                    } catch (Exception e) {
+                frame = getFrameCopy();
 
-                        result =
-                                new Analyzer.Result();
+                if (frame != null) break;
 
-                        result.signal =
-                                "NO TRADE";
-
-                        result.confidence =
-                                0.0;
-
-                        result.quality =
-                                0.0;
-
-                        result.evaluatedRules =
-                                0;
-
-                        result.detectedCandles =
-                                0;
-                    }
-
-                    // --------------------------------------------
-                    // FRAME RELEASE
-                    // --------------------------------------------
-
-                    if (!frame.isRecycled()) {
-
-                        frame.recycle();
-                    }
-
-                    final Analyzer.Result finalResult =
-                            result;
-
-                    // --------------------------------------------
-                    // PROGRESS
-                    // --------------------------------------------
-
-                    mainHandler.post(
-                            () -> sendProgress(20)
-                    );
-
-                    mainHandler.postDelayed(
-                            () -> sendProgress(45),
-                            120
-                    );
-
-                    mainHandler.postDelayed(
-                            () -> sendProgress(70),
-                            240
-                    );
-
-                    mainHandler.postDelayed(
-                            () -> sendProgress(90),
-                            360
-                    );
-
-                    mainHandler.postDelayed(
-                            () -> {
-
-                                sendProgress(100);
-
-                                finishScan(
-                                        finalResult
-                                );
-
-                            },
-                            520
-                    );
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ignored) {
                 }
-        );
+            }
+
+            // ================================================
+            // ফ্রেম পাওয়া গেলে Analyzer-এ পাঠান
+            // ================================================
+
+            if (frame == null) {
+
+                scanning = false;
+
+                mainHandler.post(() -> sendProgress(200));
+
+                mainHandler.postDelayed(() -> {
+
+                    sendResult("NO TRADE", 0, 0, getTimeframe());
+                    scanning = false;
+
+                }, 100);
+
+                return;
+            }
+
+            Analyzer.Result result;
+
+            try {
+
+                result = Analyzer.analyze(frame);
+
+            } catch (Exception e) {
+
+                result = new Analyzer.Result();
+                result.signal = "NO TRADE";
+                result.confidence = 0.0;
+                result.evaluatedRules = 0;
+                result.detectedCandles = 0;
+            }
+
+            if (!frame.isRecycled()) {
+                frame.recycle();
+            }
+
+            final Analyzer.Result finalResult = result;
+
+            // ================================================
+            // ২০০ প্রোগ্রেস ধাপে ধাপে পাঠান
+            // ================================================
+
+            final int[] steps = {
+                    20, 50, 80, 110, 140, 165, 185, 195, 200
+            };
+
+            for (int i = 0; i < steps.length; i++) {
+
+                final int value = steps[i];
+
+                mainHandler.postDelayed(
+                        () -> sendProgress(value),
+                        i * 55L
+                );
+            }
+
+            mainHandler.postDelayed(() -> {
+
+                finishScan(finalResult);
+
+            }, steps.length * 55L + 50L);
+        });
     }
 
     // ============================================================
     // FINISH SCAN
     // ============================================================
 
-    private void finishScan(
-            Analyzer.Result result
-    ) {
+    private void finishScan(Analyzer.Result result) {
 
         scanning = false;
 
         if (result == null) {
 
-            sendResult(
-                    "NO TRADE",
-                    0.0,
-                    0.0,
-                    0,
-                    0,
-                    getTimeframe()
-            );
-
+            sendResult("NO TRADE", 0, 0, getTimeframe());
             return;
         }
 
-        String signal =
-                result.signal;
+        String signal = result.signal;
 
         if (!"UP".equals(signal) &&
                 !"DOWN".equals(signal) &&
                 !"NO TRADE".equals(signal)) {
 
-            signal =
-                    "NO TRADE";
+            signal = "NO TRADE";
         }
 
-        int rules =
-                result.evaluatedRules;
+        int rules = result.evaluatedRules;
 
-        /*
-         * 100 rules সম্পূর্ণ evaluate না হলে
-         * UP/DOWN দেখানো হবে না।
-         */
-        if (rules != 100) {
+        // ================================================
+        // ২০০টি রুল evaluate না হলে সিগন্যাল দেব না
+        // ================================================
 
-            signal =
-                    "NO TRADE";
+        if (rules != 200) {
+            signal = "NO TRADE";
         }
+
+        // ================================================
+        // কমপক্ষে ৫০টি ক্যান্ডেল পাওয়া না গেলে সিগন্যাল দেব না
+        // ================================================
+
+        if (result.detectedCandles < 50) {
+            signal = "NO TRADE";
+        }
+
+        int confidenceInt = (int) Math.round(result.confidence);
 
         sendResult(
                 signal,
-                result.confidence,
-                result.quality,
+                confidenceInt,
                 rules,
-                result.detectedCandles,
                 getTimeframe()
         );
     }
 
     // ============================================================
-    // PROGRESS BROADCAST
+    // PROGRESS BROADCAST (০ থেকে ২০০)
     // ============================================================
 
-    private void sendProgress(
-            int progress
-    ) {
+    private void sendProgress(int progress) {
 
-        Intent intent =
-                new Intent(
-                        ACTION_PROGRESS
-                );
-
-        intent.setPackage(
-                getPackageName()
-        );
+        Intent intent = new Intent(ACTION_PROGRESS);
+        intent.setPackage(getPackageName());
 
         intent.putExtra(
                 "progress",
-                Math.max(
-                        0,
-                        Math.min(
-                                100,
-                                progress
-                        )
-                )
+                Math.max(0, Math.min(200, progress))
         );
 
         sendBroadcast(intent);
@@ -865,23 +598,12 @@ public class ScreenCaptureService extends Service {
     // CAPTURE STATE BROADCAST
     // ============================================================
 
-    private void sendState(
-            boolean active
-    ) {
+    private void sendState(boolean active) {
 
-        Intent intent =
-                new Intent(
-                        ACTION_CAPTURE_STATE
-                );
+        Intent intent = new Intent(ACTION_CAPTURE_STATE);
+        intent.setPackage(getPackageName());
 
-        intent.setPackage(
-                getPackageName()
-        );
-
-        intent.putExtra(
-                "active",
-                active
-        );
+        intent.putExtra("active", active);
 
         sendBroadcast(intent);
     }
@@ -890,23 +612,12 @@ public class ScreenCaptureService extends Service {
     // ERROR BROADCAST
     // ============================================================
 
-    private void sendError(
-            String message
-    ) {
+    private void sendError(String message) {
 
-        Intent intent =
-                new Intent(
-                        ACTION_ERROR
-                );
+        Intent intent = new Intent(ACTION_ERROR);
+        intent.setPackage(getPackageName());
 
-        intent.setPackage(
-                getPackageName()
-        );
-
-        intent.putExtra(
-                "message",
-                message
-        );
+        intent.putExtra("message", message);
 
         sendBroadcast(intent);
     }
@@ -917,56 +628,18 @@ public class ScreenCaptureService extends Service {
 
     private void sendResult(
             String signal,
-            double confidence,
-            double quality,
+            int confidence,
             int ruleCount,
-            int candles,
             String timeframe
     ) {
 
-        Intent intent =
-                new Intent(
-                        ACTION_RESULT
-                );
+        Intent intent = new Intent(ACTION_RESULT);
+        intent.setPackage(getPackageName());
 
-        intent.setPackage(
-                getPackageName()
-        );
-
-        intent.putExtra(
-                "signal",
-                signal
-        );
-
-        intent.putExtra(
-                "confidence",
-                confidence
-        );
-
-        intent.putExtra(
-                "quality",
-                quality
-        );
-
-        intent.putExtra(
-                "ruleCount",
-                ruleCount
-        );
-
-        intent.putExtra(
-                "detectedCandles",
-                candles
-        );
-
-        intent.putExtra(
-                "timeframe",
-                timeframe
-        );
-
-        intent.putExtra(
-                "candleSize",
-                "SCREEN CHART"
-        );
+        intent.putExtra("signal", signal);
+        intent.putExtra("confidence", confidence);
+        intent.putExtra("ruleCount", ruleCount);
+        intent.putExtra("timeframe", timeframe);
 
         sendBroadcast(intent);
     }
@@ -978,15 +651,9 @@ public class ScreenCaptureService extends Service {
     private String getTimeframe() {
 
         SharedPreferences prefs =
-                getSharedPreferences(
-                        "scanner_settings",
-                        MODE_PRIVATE
-                );
+                getSharedPreferences("scanner_settings", MODE_PRIVATE);
 
-        return prefs.getString(
-                "timeframe",
-                "1 MIN"
-        );
+        return prefs.getString("timeframe", "1 MIN");
     }
 
     // ============================================================
@@ -995,19 +662,10 @@ public class ScreenCaptureService extends Service {
 
     private Notification createNotification() {
 
-        return new NotificationCompat.Builder(
-                this,
-                CHANNEL_ID
-        )
-                .setContentTitle(
-                        "MD JIBON Scanner"
-                )
-                .setContentText(
-                        "Screen capture is active"
-                )
-                .setSmallIcon(
-                        android.R.drawable.ic_menu_view
-                )
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("MD JIBON Scanner")
+                .setContentText("Screen capture is active")
+                .setSmallIcon(android.R.drawable.ic_menu_view)
                 .setOngoing(true)
                 .build();
     }
@@ -1020,25 +678,19 @@ public class ScreenCaptureService extends Service {
 
         if (Build.VERSION.SDK_INT >= 26) {
 
-            NotificationChannel channel =
-                    new NotificationChannel(
-                            CHANNEL_ID,
-                            "MD JIBON Scanner",
-                            NotificationManager
-                                    .IMPORTANCE_LOW
-                    );
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "MD JIBON Scanner",
+                    NotificationManager.IMPORTANCE_LOW
+            );
 
             NotificationManager manager =
-                    (NotificationManager)
-                            getSystemService(
-                                    Context.NOTIFICATION_SERVICE
-                            );
+                    (NotificationManager) getSystemService(
+                            Context.NOTIFICATION_SERVICE
+                    );
 
             if (manager != null) {
-
-                manager.createNotificationChannel(
-                        channel
-                );
+                manager.createNotificationChannel(channel);
             }
         }
     }
@@ -1050,55 +702,38 @@ public class ScreenCaptureService extends Service {
     private void stopCaptureObjects() {
 
         try {
-
             if (virtualDisplay != null) {
-
                 virtualDisplay.release();
-
                 virtualDisplay = null;
             }
-
         } catch (Exception ignored) {
         }
 
         try {
-
             if (imageReader != null) {
-
                 imageReader.close();
-
                 imageReader = null;
             }
-
         } catch (Exception ignored) {
         }
 
         try {
-
             if (mediaProjection != null) {
 
                 try {
-
-                    mediaProjection.unregisterCallback(
-                            projectionCallback
-                    );
-
+                    mediaProjection.unregisterCallback(projectionCallback);
                 } catch (Exception ignored) {
                 }
 
                 mediaProjection.stop();
-
                 mediaProjection = null;
             }
-
         } catch (Exception ignored) {
         }
 
         synchronized (frameLock) {
 
-            if (latestFrame != null &&
-                    !latestFrame.isRecycled()) {
-
+            if (latestFrame != null && !latestFrame.isRecycled()) {
                 latestFrame.recycle();
             }
 
@@ -1113,7 +748,6 @@ public class ScreenCaptureService extends Service {
     private void stopCaptureInternal() {
 
         captureActive = false;
-
         scanning = false;
 
         stopCaptureObjects();
@@ -1131,23 +765,15 @@ public class ScreenCaptureService extends Service {
         stopCaptureInternal();
 
         if (executor != null) {
-
             executor.shutdownNow();
         }
 
         super.onDestroy();
     }
 
-    // ============================================================
-    // BIND
-    // ============================================================
-
     @Nullable
     @Override
-    public IBinder onBind(
-            Intent intent
-    ) {
-
+    public IBinder onBind(Intent intent) {
         return null;
     }
 }
