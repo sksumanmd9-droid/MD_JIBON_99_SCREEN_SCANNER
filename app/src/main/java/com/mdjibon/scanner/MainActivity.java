@@ -83,11 +83,17 @@ public class MainActivity extends Activity {
                 new LinearLayout.LayoutParams(-1, -2)
         );
 
-        statusText = text(
-                "READY",
-                17,
-                Color.LTGRAY
-        );
+ statusText.setText(
+        "SCREEN CAPTURE ON ✓"
+);
+
+statusText.setTextColor(
+        Color.rgb(30, 235, 135)
+);
+
+captureButton.setText(
+        "SCREEN CAPTURE ON ✓"
+);
 
         statusText.setGravity(Gravity.CENTER);
         statusText.setPadding(0, 25, 0, 25);
