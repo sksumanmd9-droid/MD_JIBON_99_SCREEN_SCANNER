@@ -49,6 +49,13 @@ public class ScreenCaptureService extends Service {
     public static final String ACTION_STOP =
             "com.mdjibon.scanner.ACTION_STOP";
 
+    /*
+     * IMPORTANT:
+     * MainActivity.java এই constant ব্যবহার করে।
+     */
+    public static final String ACTION_ERROR =
+            "com.mdjibon.scanner.ACTION_ERROR";
+
     // ============================================================
     // NOTIFICATION
     // ============================================================
@@ -276,7 +283,7 @@ public class ScreenCaptureService extends Service {
         try {
 
             // ====================================================
-            // IMPORTANT ANDROID 14+ FIX
+            // ANDROID MEDIA PROJECTION FOREGROUND SERVICE
             // ====================================================
 
             Notification notification =
@@ -315,6 +322,10 @@ public class ScreenCaptureService extends Service {
 
                 sendState(false);
 
+                sendError(
+                        "MEDIA PROJECTION MANAGER UNAVAILABLE"
+                );
+
                 return;
             }
 
@@ -333,6 +344,10 @@ public class ScreenCaptureService extends Service {
                 captureActive = false;
 
                 sendState(false);
+
+                sendError(
+                        "MEDIA PROJECTION UNAVAILABLE"
+                );
 
                 return;
             }
@@ -369,6 +384,12 @@ public class ScreenCaptureService extends Service {
                 captureActive = false;
 
                 sendState(false);
+
+                sendError(
+                        "INVALID SCREEN SIZE"
+                );
+
+                stopCaptureObjects();
 
                 return;
             }
@@ -409,7 +430,15 @@ public class ScreenCaptureService extends Service {
 
             if (virtualDisplay == null) {
 
-                stopCaptureInternal();
+                captureActive = false;
+
+                sendState(false);
+
+                sendError(
+                        "VIRTUAL DISPLAY FAILED"
+                );
+
+                stopCaptureObjects();
 
                 return;
             }
@@ -662,7 +691,7 @@ public class ScreenCaptureService extends Service {
                     try {
 
                         /*
-                         * এখানে আপনার আসল Analyzer।
+                         * আপনার আসল Analyzer.java।
                          *
                          * Analyzer.java পরিবর্তন করা হয়নি।
                          */
@@ -867,7 +896,7 @@ public class ScreenCaptureService extends Service {
 
         Intent intent =
                 new Intent(
-                        "com.mdjibon.scanner.ACTION_ERROR"
+                        ACTION_ERROR
                 );
 
         intent.setPackage(
