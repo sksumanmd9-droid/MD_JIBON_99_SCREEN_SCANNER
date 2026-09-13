@@ -163,7 +163,7 @@ public class MainActivity extends Activity {
         );
 
         TextView logic = text(
-                "100 LOGIC CHECKS",
+                "200 LOGIC CHECKS",
                 13,
                 Color.GRAY
         );
@@ -672,6 +672,25 @@ public class MainActivity extends Activity {
             statusText.setTextColor(
                     Color.rgb(255, 70, 85)
             );
+        }
+
+        // ✅ Android 14+ ফিক্স:
+        // Activity আবার সামনে আনি, যাতে Android অ্যাপ বন্ধ না করে।
+        try {
+
+            Intent bringToFront =
+                    new Intent(
+                            this,
+                            MainActivity.class
+                    );
+
+            bringToFront.addFlags(
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            );
+
+            startActivity(bringToFront);
+
+        } catch (Exception ignored) {
         }
     }
 
