@@ -178,7 +178,7 @@ public class MainActivity extends Activity {
         row.addView(timeframe, tfp);
         content.addView(row);
 
-        Button scan = primary("START CONTINUOUS SCAN");
+        Button scan = primary("START 5-SCAN ANALYSIS");
         scan.setOnClickListener(v -> startContinuous());
         content.addView(scan, lp(-1, dp(64)));
 
@@ -225,7 +225,7 @@ public class MainActivity extends Activity {
         details.setTextColor(Color.LTGRAY);
         content.addView(details, lp(-1, dp(120)));
 
-        Button b = primary("START / RESTART SCAN");
+        Button b = primary("START / RESTART 5-SCAN ANALYSIS");
         b.setOnClickListener(v -> startContinuous());
         content.addView(b, lp(-1, dp(58)));
     }
@@ -270,7 +270,7 @@ public class MainActivity extends Activity {
         }
 
         startFloatingService();
-        status.setText("SCANNING LIVE â€¢ WAITING FOR STRONG SIGNAL...");
+        status.setText("ANALYZING â€¢ UP TO 5 CURRENT-SCREEN SCANS...");
     }
 
     private void startFloatingService() {
@@ -382,7 +382,7 @@ public class MainActivity extends Activity {
                 "Logic checks: " + intent.getIntExtra("rules", 0) + "\n" +
                 "Strong agreement: " + (strong ? "YES" : "NO")
         );
-        status.setText(strong ? "STRONG SIGNAL FOUND â€¢ SCAN STOPPED" : "SCANNING â€¢ WAITING FOR STRONG AGREEMENT");
+        status.setText(strong ? "STRONG EVIDENCE IN THIS SCAN â€¢ CONFIRMING" : "SCAN RESULT â€¢ CONFIRMING WITH OTHER SCANS");
     }
 
     private void showAnalyzerResult(Analyzer.Result r, Bitmap ignored) {
