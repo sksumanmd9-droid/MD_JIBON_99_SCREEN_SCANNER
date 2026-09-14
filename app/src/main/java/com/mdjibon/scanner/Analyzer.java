@@ -192,9 +192,15 @@ public final class Analyzer {
             // is sufficient. The displayed percentage is evidence strength,
             // not a guaranteed market win probability.
             double edge = clamp(0.55 * Math.abs(signed) + 0.45 * directionalAgreement, 0, 1);
-            out.confidence = clamp(50.0 + edge * 47.0, 50.0, 97.0);
+            out.confidence = clamp(50.0 + edge * 50.0, 50.0, 97.0);
             boolean bullDirection = signed >= 0;
-            boolean enoughEvidence = Math.max(bullRatio, bearRatio) >= 0.25
+
+            // A single scan may be directionally interesting without being a
+            // strong signal. FloatingScannerService performs the final 3-5 scan
+            // confirmation. Keep strongSignal honest here: it must also reach
+            // the 90% evidence threshold and pass quality/agreement gates.
+            boolean enoughEvidence = out.confidence >= 90.0
+                    && Math.max(bullRatio, bearRatio) >= 0.25
                     && directionalAgreement >= 0.065
                     && Math.abs(signed) >= 0.065
                     && out.quality >= 48.0;
