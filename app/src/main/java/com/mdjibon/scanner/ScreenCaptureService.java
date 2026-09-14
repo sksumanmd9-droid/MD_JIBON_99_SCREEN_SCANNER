@@ -227,7 +227,7 @@ public class ScreenCaptureService extends Service {
                 sendError("No current screen frame is ready yet.");
                 return;
             }
-            source = latest.copy(Bitmap.Config.ARGB_8888, false);
+            source = latest.copy(Bitmap.Config.ARGB_8888, true);
         }
 
         // The scanner requests the frame before the blue UI overlay is displayed,
@@ -238,7 +238,7 @@ public class ScreenCaptureService extends Service {
         executor.execute(() -> {
             Bitmap clean = null;
             try {
-                clean = captured.copy(Bitmap.Config.ARGB_8888, false);
+                clean = captured.copy(Bitmap.Config.ARGB_8888, true);
 
                 // Hide the draggable scanner bubble from analysis.
                 if (excludeW > 0 && excludeH > 0) {
