@@ -333,7 +333,6 @@ public class MainActivity extends Activity {
 
     private void pickImage() { Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT); i.setType("image/*"); i.addCategory(Intent.CATEGORY_OPENABLE); startActivityForResult(i,PICK_IMAGE); }
 
-    @Override protected void onActivityResult_old(int a,int b,Intent c){}
 
     private void chooseMarket(){
         final String[] items=MARKETS; new android.app.AlertDialog.Builder(this).setTitle("Select Market").setItems(items,(d,w)->{saveMarket(items[w]);showHome();}).show();
