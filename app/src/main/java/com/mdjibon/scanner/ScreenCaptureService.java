@@ -232,7 +232,7 @@ public class ScreenCaptureService extends Service {
 
         // The scanner requests the frame before the blue UI overlay is displayed,
         // so this source represents the actual current screen.
-        sendStatus("working", "SCANNING LIVE SCREEN â€¢ 1000 LOGIC CHECKS...");
+        sendStatus("working", "SCANNING LIVE SCREEN â€¢ " + Analyzer.TOTAL_RULES + " LOGIC CHECKS...");
 
         final Bitmap captured = source;
         executor.execute(() -> {
