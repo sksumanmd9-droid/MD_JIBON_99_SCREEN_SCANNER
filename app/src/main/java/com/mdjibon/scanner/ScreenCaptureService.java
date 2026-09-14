@@ -276,8 +276,8 @@ public class ScreenCaptureService extends Service {
                 sendStatus(
                         "done",
                         result.strongSignal
-                                ? "STRONG EVIDENCE FOUND"
-                                : "SCANNING â€¢ WAITING FOR STRONG AGREEMENT"
+                                ? "STRONG EVIDENCE IN THIS SCAN â€¢ CONFIRMING"
+                                : "SCAN COMPLETE â€¢ CONTINUING MULTI-SCAN ANALYSIS"
                 );
             } catch (Exception e) {
                 sendError("Analysis failed: " + e.getMessage());
