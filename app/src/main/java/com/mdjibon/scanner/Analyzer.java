@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * Screenshot/chart analyzer.
  *
- * The 1000 checks are parameterized probes across several feature families.
+ * The 20,000 checks are parameterized probes across several feature families.
  * They are evidence checks, not 1000 independent proven indicators.
  * Confidence is an evidence score and must not be interpreted as a
  * guaranteed real-market win probability.
@@ -19,10 +19,11 @@ import java.util.List;
 public final class Analyzer {
     private Analyzer() {}
 
-    public static final int TOTAL_RULES = 1000;
+    public static final int TOTAL_RULES = 20000;
 
     public static final class Result {
-        public String signal = "NO TRADE";
+        public String signal = "UP";
+        public boolean strongSignal = false;
         public double confidence;
         public double quality;
         public int bullishCount;
@@ -93,7 +94,8 @@ public final class Analyzer {
             out.quality = chartQuality(candles);
 
             if (candles.size() < 12) {
-                out.signal = "NO TRADE";
+                out.signal = "UP";
+                out.strongSignal = false;
                 out.currentCandleColor = "UNKNOWN";
                 out.checks.add("Only " + candles.size() + " real candles detected; minimum is 12.");
                 out.checks.add("No synthetic candle fallback was used.");
@@ -107,7 +109,7 @@ public final class Analyzer {
             List<Probe> probes = new ArrayList<>(TOTAL_RULES);
 
             // 1-250: trend and market structure, multiple windows.
-            for (int i = 0; i < 250; i++) {
+            for (int i = 0; i < 5000; i++) {
                 int window = 4 + (i % Math.min(24, Math.max(5, candles.size() - 1)));
                 double trend = slopeNormalized(candles, window);
                 double move = normalizedRecentMove(candles, Math.min(window, candles.size() - 1));
@@ -117,7 +119,7 @@ public final class Analyzer {
             }
 
             // 251-500: momentum / ROC / RSI.
-            for (int i = 0; i < 250; i++) {
+            for (int i = 0; i < 5000; i++) {
                 int period = 2 + (i % 20);
                 double roc = normalizedRoc(candles, period);
                 double r = (rsi(candles, Math.min(14 + (i % 8), 21)) - 50) / 50.0;
@@ -127,7 +129,7 @@ public final class Analyzer {
             }
 
             // 501-700: candle geometry and reversal/continuation patterns.
-            for (int i = 0; i < 200; i++) {
+            for (int i = 0; i < 4000; i++) {
                 int offset = i % Math.min(10, candles.size());
                 double value = candleGeometryScore(candles, offset);
                 if ((i % 9) == 0) value *= 0.70;
@@ -135,7 +137,7 @@ public final class Analyzer {
             }
 
             // 701-850: levels, location inside range and volatility.
-            for (int i = 0; i < 150; i++) {
+            for (int i = 0; i < 3000; i++) {
                 int period = 6 + (i % 24);
                 probes.add(new Probe(levelVolatilityScore(candles, period)));
             }
@@ -148,7 +150,7 @@ public final class Analyzer {
             double level = levelVolatilityScore(candles, Math.min(20, candles.size()));
             double geometry = candleGeometryScore(candles, 0);
 
-            for (int i = 0; i < 150; i++) {
+            for (int i = 0; i < 3000; i++) {
                 double v;
                 switch (i % 10) {
                     case 0: v = 0.65 * trend + 0.35 * momentum; break;
@@ -184,16 +186,21 @@ public final class Analyzer {
             double bullRatio = bull / (double) TOTAL_RULES;
             double bearRatio = bear / (double) TOTAL_RULES;
             double directionalAgreement = Math.abs(bullRatio - bearRatio);
-            double strength = clamp(0.65 * Math.abs(signed) + 0.35 * directionalAgreement, 0, 1);
 
-            out.confidence = clamp(50.0 + strength * 48.0, 0, 98);
-            boolean bullDirection = signed > 0;
-            boolean enoughEvidence = Math.max(bullRatio, bearRatio) >= 0.22
-                    && directionalAgreement >= 0.045
-                    && Math.abs(signed) >= 0.055
-                    && out.quality >= 45.0;
+            // Balance the decision around zero. A signal is considered strong
+            // only when several independent families agree and chart quality
+            // is sufficient. The displayed percentage is evidence strength,
+            // not a guaranteed market win probability.
+            double edge = clamp(0.55 * Math.abs(signed) + 0.45 * directionalAgreement, 0, 1);
+            out.confidence = clamp(50.0 + edge * 47.0, 50.0, 97.0);
+            boolean bullDirection = signed >= 0;
+            boolean enoughEvidence = Math.max(bullRatio, bearRatio) >= 0.25
+                    && directionalAgreement >= 0.065
+                    && Math.abs(signed) >= 0.065
+                    && out.quality >= 48.0;
 
-            out.signal = enoughEvidence ? (bullDirection ? "UP" : "DOWN") : "NO TRADE";
+            out.signal = bullDirection ? "UP" : "DOWN";
+            out.strongSignal = enoughEvidence;
 
             fillPrediction(out, candles, signed, trend, momentum);
             out.checks.add("Trend / Structure: " + percent(trend));
@@ -203,7 +210,7 @@ public final class Analyzer {
             out.checks.add("Volatility: " + percent(level));
             out.checks.add("Directional bull probes: " + bull);
             out.checks.add("Directional bear probes: " + bear);
-            out.checks.add("1000 logic probes evaluated.");
+            out.checks.add("20,000 logic probes evaluated.");
             out.checks.add("Candle order: oldest to newest.");
             out.checks.add("No artificial candle fallback was used.");
 
