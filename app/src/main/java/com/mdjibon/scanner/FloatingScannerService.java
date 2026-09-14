@@ -283,6 +283,29 @@ public class FloatingScannerService extends Service {
                 Toast.LENGTH_LONG).show();
     }
 
+    private void finishScan(boolean success, String message) {
+        // Finish the current finite scan session on capture/analysis errors.
+        scanning = false;
+        scanBusy = false;
+        if (nextScan != null) {
+            handler.removeCallbacks(nextScan);
+            nextScan = null;
+        }
+        hideScanOverlay();
+
+        if (success) {
+            setBadgeText(message == null ? "DONE" : message);
+        } else {
+            setBadgeText("SCAN ERROR");
+            Toast.makeText(
+                    FloatingScannerService.this,
+                    message == null ? "Scan failed." : message,
+                    Toast.LENGTH_LONG
+            ).show();
+            sendSessionStatus("error", message == null ? "Scan failed." : message);
+        }
+    }
+
     private void setBadgeNoSignal() {
         setBadgeText("NO SIGNAL");
     }
