@@ -22,48 +22,41 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.Locale;
 
 public class FloatingScannerService extends Service {
-
-    // Kept for compatibility with MainActivity. The action now starts a finite
-    // multi-scan session, not an endless scanner.
     public static final String ACTION_START_CONTINUOUS =
             "com.mdjibon.scanner.ACTION_START_CONTINUOUS";
 
+    private static final int MIN_SCANS_BEFORE_SIGNAL = 3;
     private static final int MAX_SCANS = 5;
-    private static final int MIN_SCANS_FOR_DECISION = 3;
-    private static final float STRONG_SCORE = 90.0f;
-    private static final float VERY_STRONG_SCORE = 95.0f;
-    private static final int MIN_DIRECTION_AGREEMENT = 3;
-    private static final long SCAN_INTERVAL_MS = 1800L;
-    private static final long OVERLAY_MS = 1250L;
+    private static final float MIN_SIGNAL_SCORE = 90.0f;
+    private static final int SAME_DIRECTION_CONFIRMATIONS = 2;
+    private static final long SIGNAL_COOLDOWN_MS = 2500L;
+    private static final long SCAN_INTERVAL_MS = 2600L;
+    private static final long OVERLAY_MS = 1450L;
 
     private static volatile boolean running = false;
 
     private WindowManager wm;
-    private FrameLayout bubble;
-    private ImageView icon;
+    private LinearLayout bubble;
     private TextView badge;
     private WindowManager.LayoutParams params;
     private Handler handler;
     private View scanOverlay;
 
-    private boolean scanning = false;
+    private Runnable loop;
+    private boolean continuous = false;
     private boolean scanBusy = false;
     private int scanCount = 0;
-    private int upCount = 0;
-    private int downCount = 0;
-    private float upScoreSum = 0f;
-    private float downScoreSum = 0f;
-    private float bestScore = 0f;
-    private String bestSignal = "";
-    private Runnable nextScan;
+    private String lastStrongSignal = "";
+    private int sameStrongCount = 0;
+    private long lastAnnouncedAt = 0L;
 
     public static boolean isRunning() {
         return running;
@@ -88,16 +81,48 @@ public class FloatingScannerService extends Service {
             if (ScreenCaptureService.ACTION_RESULT.equals(action)) {
                 hideScanOverlay();
                 scanBusy = false;
-                handleScanResult(intent);
+
+                String signal = intent.getStringExtra("signal");
+                float score = intent.getFloatExtra("score", 0f);
+                boolean analyzerStrong = intent.getBooleanExtra("strong", false);
+
+                if (signal == null) return;
+
+                if (analyzerStrong && score >= MIN_SIGNAL_SCORE) {
+                    if (signal.equals(lastStrongSignal)) {
+                        sameStrongCount++;
+                    } else {
+                        lastStrongSignal = signal;
+                        sameStrongCount = 1;
+                    }
+
+                    if (scanCount >= MIN_SCANS_BEFORE_SIGNAL
+                            && sameStrongCount >= SAME_DIRECTION_CONFIRMATIONS
+                            && System.currentTimeMillis() - lastAnnouncedAt >= SIGNAL_COOLDOWN_MS) {
+                        lastAnnouncedAt = System.currentTimeMillis();
+                        showBadge(signal, score);
+                        continuous = false;
+                        stopLoopOnly();
+                        Toast.makeText(
+                                FloatingScannerService.this,
+                                signal + "  " + String.format(Locale.US, "%.0f%%", score)
+                                        + " â€¢ SCAN STOPPED",
+                                Toast.LENGTH_LONG
+                        ).show();
+                    }
+                }
+
+                if (scanCount >= MAX_SCANS && continuous) {
+                    continuous = false;
+                    stopLoopOnly();
+                    hideBadge();
+                }
                 return;
             }
 
             if (ScreenCaptureService.ACTION_ERROR.equals(action)) {
                 scanBusy = false;
                 hideScanOverlay();
-                String message = intent.getStringExtra("message");
-                if (message == null) message = "Scan failed.";
-                finishScan(false, message);
             }
         }
     };
@@ -125,43 +150,48 @@ public class FloatingScannerService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (bubble == null && Settings.canDrawOverlays(this)) createBubble();
-
         if (intent != null && ACTION_START_CONTINUOUS.equals(intent.getAction())) {
-            startScanSession();
+            startContinuous();
         }
         return START_STICKY;
     }
 
-    private void startScanSession() {
+    private void startContinuous() {
         if (!ScreenCaptureService.isCaptureActive()) {
             Toast.makeText(this, "Start screen capture first.", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (scanning) return;
 
-        scanning = true;
+        if (continuous) return;
+
+        continuous = true;
         scanBusy = false;
         scanCount = 0;
-        upCount = 0;
-        downCount = 0;
-        upScoreSum = 0f;
-        downScoreSum = 0f;
-        bestScore = 0f;
-        bestSignal = "";
+        lastStrongSignal = "";
+        sameStrongCount = 0;
+        lastAnnouncedAt = 0L;
+        setBadgeText("READY");
 
-        hideBadge();
+        if (loop != null) handler.removeCallbacks(loop);
+        loop = new Runnable() {
+            @Override
+            public void run() {
+                if (!continuous || !running) return;
+                requestOneScan();
+                handler.postDelayed(this, SCAN_INTERVAL_MS);
+            }
+        };
+
         requestOneScan();
+        handler.postDelayed(loop, SCAN_INTERVAL_MS);
     }
 
     private void requestOneScan() {
-        if (!scanning || scanBusy || !ScreenCaptureService.isCaptureActive()) return;
-        if (scanCount >= MAX_SCANS) {
-            finishAfterMaxScans();
-            return;
-        }
+        if (!continuous || scanBusy || !ScreenCaptureService.isCaptureActive()) return;
 
         scanBusy = true;
         scanCount++;
+        // Final signal is shown only after a strong result; keep the badge hidden while scanning.
         hideBadge();
 
         Intent intent = new Intent(this, ScreenCaptureService.class);
@@ -173,6 +203,8 @@ public class FloatingScannerService extends Service {
             intent.putExtra("excludeH", params.height);
         }
 
+        // Capture the clean current frame FIRST. The blue layer is then shown
+        // to the user while that captured frame is being analysed.
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
         else startService(intent);
 
@@ -180,155 +212,18 @@ public class FloatingScannerService extends Service {
         handler.postDelayed(this::hideScanOverlay, OVERLAY_MS);
     }
 
-    private void handleScanResult(Intent intent) {
-        if (!scanning) return;
-
-        String signal = intent.getStringExtra("signal");
-        float score = intent.getFloatExtra("score", 0f);
-        boolean strong = intent.getBooleanExtra("strong", false);
-
-        if (!"UP".equals(signal) && !"DOWN".equals(signal)) {
-            signal = "";
-        }
-
-        if (signal.isEmpty()) {
-            scheduleNextScan();
-            return;
-        }
-
-        if ("UP".equals(signal)) {
-            upCount++;
-            upScoreSum += score;
-        } else {
-            downCount++;
-            downScoreSum += score;
-        }
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestSignal = signal;
-        }
-
-        // A single strong frame is never enough. We require at least 3 scans
-        // and at least 3 agreeing directions before displaying a final signal.
-        int count = "UP".equals(signal) ? upCount : downCount;
-        float average = "UP".equals(signal)
-                ? upScoreSum / Math.max(1, upCount)
-                : downScoreSum / Math.max(1, downCount);
-
-        if (scanCount >= MIN_SCANS_FOR_DECISION && strong && score >= STRONG_SCORE
-                && count >= MIN_DIRECTION_AGREEMENT && average >= STRONG_SCORE) {
-            announceFinal("UP".equals(signal) ? upCount >= downCount ? "UP" : "DOWN"
-                    : downCount >= upCount ? "DOWN" : "UP", average);
-            return;
-        }
-
-        if (scanCount >= MAX_SCANS) {
-            finishAfterMaxScans();
-        } else {
-            scheduleNextScan();
-        }
-    }
-
-    private void scheduleNextScan() {
-        if (!scanning) return;
-        if (nextScan != null) handler.removeCallbacks(nextScan);
-        nextScan = () -> {
-            if (scanning) requestOneScan();
-        };
-        handler.postDelayed(nextScan, SCAN_INTERVAL_MS);
-    }
-
-    private void finishAfterMaxScans() {
-        if (!scanning) return;
-
-        String finalSignal = upCount >= downCount ? "UP" : "DOWN";
-        int directionCount = "UP".equals(finalSignal) ? upCount : downCount;
-        float average = "UP".equals(finalSignal)
-                ? upScoreSum / Math.max(1, upCount)
-                : downScoreSum / Math.max(1, downCount);
-
-        // Do not manufacture a 90/95% number. If five scans do not contain
-        // strong evidence, show NO STRONG SIGNAL and stop this session.
-        if (directionCount >= MIN_DIRECTION_AGREEMENT && average >= STRONG_SCORE) {
-            announceFinal(finalSignal, Math.min(97f, average));
-        } else {
-            scanning = false;
-            scanBusy = false;
-            if (nextScan != null) handler.removeCallbacks(nextScan);
-            hideScanOverlay();
-            hideBadge();
-            sendSessionStatus("done", "NO STRONG SIGNAL â€¢ 5 scans completed");
-            Toast.makeText(this,
-                    "NO STRONG SIGNAL â€¢ 5 scans completed",
-                    Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void announceFinal(String signal, float score) {
-        scanning = false;
+    private void stopLoopOnly() {
+        continuous = false;
         scanBusy = false;
-        if (nextScan != null) handler.removeCallbacks(nextScan);
-        hideScanOverlay();
-
-        float shown = Math.min(97f, Math.max(0f, score));
-        if (shown < STRONG_SCORE) {
-            finishAfterMaxScans();
-            return;
-        }
-        showBadge(signal, shown);
-
-        String strength = shown >= VERY_STRONG_SCORE ? "VERY STRONG" : "STRONG";
-        sendSessionStatus("done",
-                signal + " " + String.format(Locale.US, "%.0f%%", shown)
-                        + " â€¢ " + strength + " â€¢ SCAN STOPPED");
-        Toast.makeText(this,
-                signal + " " + String.format(Locale.US, "%.0f%%", shown)
-                        + " â€¢ " + strength + " â€¢ SCAN STOPPED",
-                Toast.LENGTH_LONG).show();
-    }
-
-    private void finishScan(boolean success, String message) {
-        // Finish the current finite scan session on capture/analysis errors.
-        scanning = false;
-        scanBusy = false;
-        if (nextScan != null) {
-            handler.removeCallbacks(nextScan);
-            nextScan = null;
+        if (loop != null) {
+            handler.removeCallbacks(loop);
+            loop = null;
         }
         hideScanOverlay();
-
-        if (success) {
-            setBadgeText(message == null ? "DONE" : message);
-        } else {
-            hideBadge();
-            Toast.makeText(
-                    FloatingScannerService.this,
-                    message == null ? "Scan failed." : message,
-                    Toast.LENGTH_LONG
-            ).show();
-            sendSessionStatus("error", message == null ? "Scan failed." : message);
-        }
     }
 
-    private void setBadgeNoSignal() {
-        setBadgeText("NO SIGNAL");
-    }
-
-    private void sendSessionStatus(String state, String message) {
-        Intent out = new Intent(ScreenCaptureService.ACTION_SCAN_STATUS);
-        out.setPackage(getPackageName());
-        out.putExtra("state", state);
-        out.putExtra("message", message);
-        sendBroadcast(out);
-    }
-
-    private void stopScanSession() {
-        scanning = false;
-        scanBusy = false;
-        if (nextScan != null) handler.removeCallbacks(nextScan);
-        nextScan = null;
-        hideScanOverlay();
+    private void stopEverything() {
+        stopLoopOnly();
         hideBadge();
     }
 
@@ -336,33 +231,33 @@ public class FloatingScannerService extends Service {
         if (bubble != null || !Settings.canDrawOverlays(this)) return;
 
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
-        bubble = new FrameLayout(this);
+        bubble = new LinearLayout(this);
+        bubble.setGravity(Gravity.CENTER);
+        bubble.setOrientation(LinearLayout.VERTICAL);
 
-        icon = new ImageView(this);
+        ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.md_jibon_logo);
-        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
         icon.setBackgroundColor(Color.TRANSPARENT);
-        icon.setContentDescription("MD JIBON Scanner");
-
-        FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(60), dp(60));
-        iconLp.leftMargin = 0;
-        iconLp.topMargin = dp(2);
-        bubble.addView(icon, iconLp);
+        bubble.addView(icon, new LinearLayout.LayoutParams(dp(68), dp(68)));
 
         badge = new TextView(this);
         badge.setText("SCAN");
         badge.setGravity(Gravity.CENTER);
         badge.setTextSize(10);
         badge.setTextColor(Color.WHITE);
-        setBadgeBackground(false, false);
-
-        FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(dp(92), dp(30));
-        badgeLp.leftMargin = dp(64);
-        badgeLp.topMargin = dp(18);
-        bubble.addView(badge, badgeLp);
+        GradientDrawable badgeBg = new GradientDrawable();
+        badgeBg.setColor(Color.rgb(8, 20, 31));
+        badgeBg.setStroke(dp(1), Color.rgb(55, 170, 235));
+        badgeBg.setCornerRadius(dp(8));
+        badge.setBackground(badgeBg);
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(72), dp(28));
+        badgeParams.topMargin = dp(2);
+        bubble.addView(badge, badgeParams);
+        badge.setVisibility(View.GONE);
 
         params = new WindowManager.LayoutParams(
-                dp(158), dp(66),
+                dp(76), dp(92),
                 Build.VERSION.SDK_INT >= 26
                         ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                         : WindowManager.LayoutParams.TYPE_PHONE,
@@ -377,9 +272,16 @@ public class FloatingScannerService extends Service {
         params.x = pref.getInt("bubbleX", dp(15));
         params.y = pref.getInt("bubbleY", dp(280));
 
+        icon.setOnClickListener(v -> {
+            if (continuous) stopEverything();
+            else startContinuous();
+        });
+
         bubble.setOnTouchListener(new View.OnTouchListener() {
-            float startX, startY;
-            int startParamX, startParamY;
+            float startX;
+            float startY;
+            int startParamX;
+            int startParamY;
             long downTime;
             boolean moved;
 
@@ -399,9 +301,12 @@ public class FloatingScannerService extends Service {
                         float dx = event.getRawX() - startX;
                         float dy = event.getRawY() - startY;
                         if (Math.abs(dx) > dp(5) || Math.abs(dy) > dp(5)) moved = true;
+
                         params.x = Math.max(0, startParamX + (int) dx);
                         params.y = Math.max(0, startParamY + (int) dy);
-                        getSharedPreferences("scanner_settings", MODE_PRIVATE).edit()
+
+                        getSharedPreferences("scanner_settings", MODE_PRIVATE)
+                                .edit()
                                 .putInt("bubbleX", params.x)
                                 .putInt("bubbleY", params.y)
                                 .apply();
@@ -411,8 +316,8 @@ public class FloatingScannerService extends Service {
                     case MotionEvent.ACTION_UP:
                         long duration = System.currentTimeMillis() - downTime;
                         if (!moved && duration < 450) {
-                            if (scanning) stopScanSession();
-                            else startScanSession();
+                            if (continuous) stopEverything();
+                            else startContinuous();
                         }
                         return true;
                 }
@@ -458,36 +363,31 @@ public class FloatingScannerService extends Service {
 
     private void showBadge(String signal, float score) {
         if (badge == null) return;
-        badge.setText(signal + " " + String.format(Locale.US, "%.0f%%", score));
         badge.setVisibility(View.VISIBLE);
-        setBadgeBackground(true, "UP".equals(signal));
+        badge.setText(signal + " " + String.format(Locale.US, "%.0f%%", score));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(8));
+        bg.setColor("UP".equals(signal)
+                ? Color.rgb(0, 120, 70)
+                : Color.rgb(145, 25, 38));
+        bg.setStroke(dp(1), "UP".equals(signal)
+                ? Color.rgb(60, 240, 165)
+                : Color.rgb(255, 75, 90));
+        badge.setBackground(bg);
     }
 
     private void hideBadge() {
-        if (badge == null) return;
-        badge.setVisibility(View.GONE);
+        if (badge != null) badge.setVisibility(View.GONE);
     }
 
     private void setBadgeText(String text) {
         if (badge == null) return;
-        badge.setText(text);
         badge.setVisibility(View.VISIBLE);
-        setBadgeBackground(false, false);
-    }
-
-    private void setBadgeBackground(boolean result, boolean up) {
-        if (badge == null) return;
+        badge.setText(text);
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(8));
-        if (result) {
-            bg.setColor(up ? Color.rgb(0, 120, 70) : Color.rgb(145, 25, 38));
-            bg.setStroke(dp(1), up
-                    ? Color.rgb(60, 240, 165)
-                    : Color.rgb(255, 75, 90));
-        } else {
-            bg.setColor(Color.rgb(8, 20, 31));
-            bg.setStroke(dp(1), Color.rgb(55, 170, 235));
-        }
+        bg.setColor(Color.rgb(8, 20, 31));
+        bg.setStroke(dp(1), Color.rgb(55, 170, 235));
         badge.setBackground(bg);
     }
 
@@ -508,7 +408,7 @@ public class FloatingScannerService extends Service {
         startForeground(
                 9903,
                 builder.setContentTitle("MD JIBON Scanner")
-                        .setContentText("Finite current-screen scanner active")
+                        .setContentText("Current-screen continuous scanner active")
                         .setSmallIcon(android.R.drawable.ic_menu_search)
                         .build()
         );
@@ -521,7 +421,7 @@ public class FloatingScannerService extends Service {
     @Override
     public void onDestroy() {
         running = false;
-        stopScanSession();
+        stopEverything();
         try { unregisterReceiver(receiver); } catch (Exception ignored) { }
         if (bubble != null && wm != null) {
             try { wm.removeView(bubble); } catch (Exception ignored) { }
@@ -559,12 +459,19 @@ public class FloatingScannerService extends Service {
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             paint.setStyle(Paint.Style.FILL);
+
+            // Whole-display blue translucent cover.
             paint.setColor(Color.argb(48, 0, 110, 255));
             canvas.drawRect(0, 0, getWidth(), getHeight(), paint);
+
+            // Soft blue scanning trail.
             paint.setColor(Color.argb(58, 40, 145, 255));
             canvas.drawRect(0, Math.max(0, y - 105), getWidth(), y, paint);
+
+            // Bright moving scan bar.
             paint.setColor(Color.argb(205, 55, 165, 255));
             canvas.drawRect(0, y - 5, getWidth(), y + 5, paint);
+
             paint.setColor(Color.argb(120, 100, 200, 255));
             canvas.drawRect(0, y - 1, getWidth(), y + 1, paint);
         }
