@@ -1,14 +1,179 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="64dp"
-    android:height="64dp"
-    android:viewportWidth="64"
-    android:viewportHeight="64">
-    <path android:fillColor="#06111D" android:pathData="M16,2 L48,2 C55.7,2 62,8.3 62,16 L62,48 C62,55.7 55.7,62 48,62 L16,62 C8.3,62 2,55.7 2,48 L2,16 C2,8.3 8.3,2 16,2 Z" />
-    <path android:fillColor="@android:color/transparent" android:strokeColor="#28DCFF" android:strokeWidth="2.2" android:pathData="M32,8 A24,24 0,1 0,32,56 A24,24 0,1 0,32,8" />
-    <path android:fillColor="@android:color/transparent" android:strokeColor="#20F0A0" android:strokeWidth="2.2" android:pathData="M15,43 L23,34 L30,40 L42,25 L51,30" />
-    <path android:fillColor="#20F0A0" android:pathData="M15,47 L20,47 L20,37 L15,37 Z M23,47 L28,47 L28,29 L23,29 Z M31,47 L36,47 L36,34 L31,34 Z M39,47 L44,47 L44,21 L39,21 Z" />
-    <path android:fillColor="#28DCFF" android:pathData="M13,21 L13,17 L28,17 L28,21 L23,21 L23,28 L18,28 L18,21 Z" />
-    <path android:fillColor="#28DCFF" android:pathData="M41,17 L51,17 L51,22 L46,22 L46,28 L41,28 Z" />
-    <path android:fillColor="#28DCFF" android:pathData="M48,25 L54,25 L54,31 L48,31 Z" />
+    android:width="512dp"
+    android:height="512dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <!-- ========================================================= -->
+    <!-- MD JIBON - NEON FINANCE / SCANNER LOGO                    -->
+    <!-- ========================================================= -->
+
+    <!-- Dark rounded background -->
+    <path
+        android:fillColor="#071015"
+        android:pathData="M96,8 L416,8 Q504,8 504,96 L504,416 Q504,504 416,504 L96,504 Q8,504 8,416 L8,96 Q8,8 96,8 Z" />
+
+    <!-- Outer cyan glow-style border -->
+    <path
+        android:fillColor="#061A20"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="8"
+        android:pathData="M94,24 L418,24 Q488,24 488,94 L488,418 Q488,488 418,488 L94,488 Q24,488 24,418 L24,94 Q24,24 94,24 Z" />
+
+    <!-- Inner green border -->
+    <path
+        android:fillColor="#08151A"
+        android:strokeColor="#39FF88"
+        android:strokeWidth="4"
+        android:pathData="M106,42 L406,42 Q470,42 470,106 L470,406 Q470,470 406,470 L106,470 Q42,470 42,406 L42,106 Q42,42 106,42 Z" />
+
+    <!-- ========================================================= -->
+    <!-- RISING CANDLESTICK CHART                                 -->
+    <!-- ========================================================= -->
+
+    <!-- Candle 1 -->
+    <path
+        android:fillColor="#20FF78"
+        android:pathData="M102,205 L102,152 L116,152 L116,205 Z" />
+    <path
+        android:fillColor="#20FF78"
+        android:pathData="M109,142 L109,218 L112,218 L112,142 Z" />
+
+    <!-- Candle 2 -->
+    <path
+        android:fillColor="#20FF78"
+        android:pathData="M132,190 L132,128 L148,128 L148,190 Z" />
+    <path
+        android:fillColor="#20FF78"
+        android:pathData="M140,116 L140,202 L143,202 L143,116 Z" />
+
+    <!-- Candle 3 -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M166,174 L166,112 L182,112 L182,174 Z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M174,98 L174,188 L177,188 L177,98 Z" />
+
+    <!-- Candle 4 -->
+    <path
+        android:fillColor="#39FF88"
+        android:pathData="M200,158 L200,92 L217,92 L217,158 Z" />
+    <path
+        android:fillColor="#39FF88"
+        android:pathData="M208,78 L208,174 L211,174 L211,78 Z" />
+
+    <!-- Candle 5 -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M236,138 L236,76 L254,76 L254,138 Z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M244,60 L244,154 L247,154 L247,60 Z" />
+
+    <!-- Candle 6 -->
+    <path
+        android:fillColor="#39FF88"
+        android:pathData="M274,116 L274,55 L292,55 L292,116 Z" />
+    <path
+        android:fillColor="#39FF88"
+        android:pathData="M282,42 L282,132 L285,132 L285,42 Z" />
+
+    <!-- Candle 7 -->
+    <path
+        android:fillColor="#20FF78"
+        android:pathData="M314,100 L314,48 L331,48 L331,100 Z" />
+    <path
+        android:fillColor="#20FF78"
+        android:pathData="M322,35 L322,116 L325,116 L325,35 Z" />
+
+    <!-- ========================================================= -->
+    <!-- RISING TREND LINE                                        -->
+    <!-- ========================================================= -->
+
+    <path
+        android:fillColor="#39FF88"
+        android:pathData="M91,221 L145,184 L177,192 L218,145 L254,151 L292,106 L329,113 L384,66 L394,78 L333,128 L294,121 L257,166 L220,159 L180,205 L146,197 L98,237 Z" />
+
+    <!-- ========================================================= -->
+    <!-- BULLISH ARROW                                            -->
+    <!-- ========================================================= -->
+
+    <path
+        android:fillColor="#20FF78"
+        android:pathData="M342,126 L406,62 L406,104 L439,104 L439,130 L406,130 L406,171 Z" />
+
+    <!-- ========================================================= -->
+    <!-- MD EMBLEM                                                -->
+    <!-- ========================================================= -->
+
+    <!-- M -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M82,252 L112,252 L143,310 L174,252 L204,252 L204,355 L177,355 L177,294 L150,345 L136,345 L109,294 L109,355 L82,355 Z" />
+
+    <!-- D -->
+    <path
+        android:fillColor="#39FF88"
+        android:pathData="M215,252 L265,252 Q326,252 326,304 Q326,355 265,355 L215,355 Z M244,279 L244,328 L263,328 Q297,328 297,304 Q297,279 263,279 Z" />
+
+    <!-- ========================================================= -->
+    <!-- ORBIT / SCANNER RING                                     -->
+    <!-- ========================================================= -->
+
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="7"
+        android:pathData="M67,298 Q67,184 183,157 Q291,132 392,199 Q452,238 447,318" />
+
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#39FF88"
+        android:strokeWidth="5"
+        android:pathData="M65,330 Q86,418 191,436 Q303,456 394,394 Q438,364 449,320" />
+
+    <!-- ========================================================= -->
+    <!-- JIBON TEXT STYLE                                         -->
+    <!-- ========================================================= -->
+
+    <!-- J -->
+    <path
+        android:fillColor="#39FF88"
+        android:pathData="M118,378 L145,378 L145,422 Q145,435 133,435 Q120,435 120,422 L120,414 L96,414 L96,425 Q96,458 134,458 Q171,458 171,423 L171,378 Z" />
+
+    <!-- I -->
+    <path
+        android:fillColor="#39FF88"
+        android:pathData="M180,378 L207,378 L207,458 L180,458 Z" />
+
+    <!-- B -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M219,378 L260,378 Q285,378 285,398 Q285,411 274,416 Q289,420 289,437 Q289,458 261,458 L219,458 Z M245,395 L245,410 L258,410 Q264,410 264,402 Q264,395 258,395 Z M245,426 L245,441 L260,441 Q267,441 267,433 Q267,426 260,426 Z" />
+
+    <!-- O -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M302,378 Q345,378 345,418 Q345,458 302,458 Q259,458 259,418 Q259,378 302,378 Z M302,398 Q286,398 286,418 Q286,438 302,438 Q318,438 318,418 Q318,398 302,398 Z" />
+
+    <!-- N -->
+    <path
+        android:fillColor="#39FF88"
+        android:pathData="M360,378 L387,378 L414,422 L414,378 L440,378 L440,458 L414,458 L386,414 L386,458 L360,458 Z" />
+
+    <!-- ========================================================= -->
+    <!-- SMALL SCANNER LABEL                                      -->
+    <!-- ========================================================= -->
+
+    <path
+        android:fillColor="#A8FFF0"
+        android:pathData="M171,465 L341,465 L341,472 L171,472 Z" />
+
+    <!-- Small center scanner dot -->
+    <path
+        android:fillColor="#39FF88"
+        android:pathData="M249,185 A7,7 0,1 0,263,185 A7,7 0,1 0,249,185" />
+
 </vector>
