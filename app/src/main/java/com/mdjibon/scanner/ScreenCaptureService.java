@@ -230,19 +230,9 @@ public class ScreenCaptureService extends Service {
             source = latest.copy(Bitmap.Config.ARGB_8888, true);
         }
 
-        // Hard gate: only a visible Cortex/Quotex-style chart screen is accepted.
-        // We intentionally inspect the current pixels instead of assuming that
-        // MediaProjection is pointed at the trading app. This prevents scanning
-        // the home screen, settings, browser, or MD JIBON itself.
-        if (!looksLikeCortexChart(source)) {
-            if (!source.isRecycled()) source.recycle();
-            sendError("CORTEX CHART NOT DETECTED â€¢ SCAN BLOCKED");
-            return;
-        }
-
         // The scanner requests the frame before the blue UI overlay is displayed,
         // so this source represents the actual current screen.
-        sendStatus("working", "CORTEX CHART VERIFIED â€¢ SCANNING " + Analyzer.TOTAL_RULES + " LOGIC CHECKS...");
+        sendStatus("working", "SCANNING LIVE SCREEN â€¢ " + Analyzer.TOTAL_RULES + " LOGIC CHECKS...");
 
         final Bitmap captured = source;
         executor.execute(() -> {
@@ -296,74 +286,6 @@ public class ScreenCaptureService extends Service {
                 if (!captured.isRecycled()) captured.recycle();
             }
         });
-    }
-
-    /**
-     * Visual platform gate for the supported Cortex/Quotex-style chart UI.
-     * This is deliberately conservative: a scan is allowed only when the
-     * screen contains both the characteristic chart candle colors and the
-     * green UP / red DOWN trade controls near the bottom.
-     *
-     * It is a visual gate, not an Android package-name check. MediaProjection
-     * does not expose the foreground package to this service.
-     */
-    private boolean looksLikeCortexChart(Bitmap bmp) {
-        if (bmp == null || bmp.isRecycled()) return false;
-        int w = bmp.getWidth();
-        int h = bmp.getHeight();
-        if (w < 300 || h < 500) return false;
-
-        int buttonGreen = 0;
-        int buttonRed = 0;
-        int chartGreen = 0;
-        int chartRed = 0;
-
-        int buttonTop = Math.round(h * 0.82f);
-        int buttonBottom = Math.round(h * 0.99f);
-        int chartTop = Math.round(h * 0.08f);
-        int chartBottom = Math.round(h * 0.76f);
-
-        // Sample every 3 pixels to keep this gate inexpensive.
-        for (int y = buttonTop; y < buttonBottom; y += 3) {
-            for (int x = 0; x < w; x += 3) {
-                int c = bmp.getPixel(x, y);
-                if (x < w * 0.52f && isButtonGreen(c)) buttonGreen++;
-                if (x > w * 0.48f && isButtonRed(c)) buttonRed++;
-            }
-        }
-
-        // The chart itself must also contain a meaningful amount of candle-like
-        // green/red pixels. This makes the bottom button colors alone insufficient.
-        for (int y = chartTop; y < chartBottom; y += 4) {
-            for (int x = Math.round(w * 0.02f); x < Math.round(w * 0.92f); x += 4) {
-                int c = bmp.getPixel(x, y);
-                if (isChartGreen(c)) chartGreen++;
-                if (isChartRed(c)) chartRed++;
-            }
-        }
-
-        return buttonGreen >= 120 && buttonRed >= 120
-                && chartGreen >= 45 && chartRed >= 45;
-    }
-
-    private boolean isButtonGreen(int c) {
-        int r = Color.red(c), g = Color.green(c), b = Color.blue(c);
-        return g > 115 && g > r * 1.18f && g > b * 1.02f && g - r > 20;
-    }
-
-    private boolean isButtonRed(int c) {
-        int r = Color.red(c), g = Color.green(c), b = Color.blue(c);
-        return r > 125 && r > g * 1.20f && r > b * 1.08f && r - g > 22;
-    }
-
-    private boolean isChartGreen(int c) {
-        int r = Color.red(c), g = Color.green(c), b = Color.blue(c);
-        return g >= 105 && g > r * 1.14f && g >= b * 0.95f && g - r >= 12;
-    }
-
-    private boolean isChartRed(int c) {
-        int r = Color.red(c), g = Color.green(c), b = Color.blue(c);
-        return r >= 105 && r > g * 1.16f && r > b * 1.02f && r - g >= 12;
     }
 
     private void sendState(boolean active) {
