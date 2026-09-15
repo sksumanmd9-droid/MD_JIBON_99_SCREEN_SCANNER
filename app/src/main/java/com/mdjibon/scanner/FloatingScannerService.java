@@ -23,6 +23,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -47,7 +48,7 @@ public class FloatingScannerService extends Service {
 
     private WindowManager wm;
     private FrameLayout bubble;
-    private TextView icon;
+    private ImageView icon;
     private TextView badge;
     private WindowManager.LayoutParams params;
     private Handler handler;
@@ -148,7 +149,7 @@ public class FloatingScannerService extends Service {
         bestScore = 0f;
         bestSignal = "";
 
-        setBadgeText("SCAN 1/5");
+        hideBadge();
         requestOneScan();
     }
 
@@ -161,7 +162,7 @@ public class FloatingScannerService extends Service {
 
         scanBusy = true;
         scanCount++;
-        setBadgeText("SCAN " + scanCount + "/" + MAX_SCANS);
+        hideBadge();
 
         Intent intent = new Intent(this, ScreenCaptureService.class);
         intent.setAction(ScreenCaptureService.ACTION_SCAN);
@@ -256,7 +257,7 @@ public class FloatingScannerService extends Service {
             scanBusy = false;
             if (nextScan != null) handler.removeCallbacks(nextScan);
             hideScanOverlay();
-            setBadgeNoSignal();
+            hideBadge();
             sendSessionStatus("done", "NO STRONG SIGNAL â€¢ 5 scans completed");
             Toast.makeText(this,
                     "NO STRONG SIGNAL â€¢ 5 scans completed",
@@ -270,7 +271,11 @@ public class FloatingScannerService extends Service {
         if (nextScan != null) handler.removeCallbacks(nextScan);
         hideScanOverlay();
 
-        float shown = Math.max(90f, Math.min(97f, score));
+        float shown = Math.min(97f, Math.max(0f, score));
+        if (shown < STRONG_SCORE) {
+            finishAfterMaxScans();
+            return;
+        }
         showBadge(signal, shown);
 
         String strength = shown >= VERY_STRONG_SCORE ? "VERY STRONG" : "STRONG";
@@ -296,7 +301,7 @@ public class FloatingScannerService extends Service {
         if (success) {
             setBadgeText(message == null ? "DONE" : message);
         } else {
-            setBadgeText("SCAN ERROR");
+            hideBadge();
             Toast.makeText(
                     FloatingScannerService.this,
                     message == null ? "Scan failed." : message,
@@ -324,7 +329,7 @@ public class FloatingScannerService extends Service {
         if (nextScan != null) handler.removeCallbacks(nextScan);
         nextScan = null;
         hideScanOverlay();
-        setBadgeText("SCAN");
+        hideBadge();
     }
 
     private void createBubble() {
@@ -333,16 +338,11 @@ public class FloatingScannerService extends Service {
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         bubble = new FrameLayout(this);
 
-        icon = new TextView(this);
-        icon.setText("MD");
-        icon.setTextSize(16);
-        icon.setGravity(Gravity.CENTER);
-        icon.setTextColor(Color.rgb(70, 250, 165));
-        GradientDrawable iconBg = new GradientDrawable();
-        iconBg.setShape(GradientDrawable.OVAL);
-        iconBg.setColor(Color.rgb(5, 20, 29));
-        iconBg.setStroke(dp(2), Color.rgb(50, 235, 155));
-        icon.setBackground(iconBg);
+        icon = new ImageView(this);
+        icon.setImageResource(R.drawable.md_jibon_logo);
+        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        icon.setBackgroundColor(Color.TRANSPARENT);
+        icon.setContentDescription("MD JIBON Scanner");
 
         FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(60), dp(60));
         iconLp.leftMargin = 0;
@@ -356,13 +356,13 @@ public class FloatingScannerService extends Service {
         badge.setTextColor(Color.WHITE);
         setBadgeBackground(false, false);
 
-        FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(dp(72), dp(28));
-        badgeLp.leftMargin = dp(62);
+        FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(dp(92), dp(30));
+        badgeLp.leftMargin = dp(64);
         badgeLp.topMargin = dp(18);
         bubble.addView(badge, badgeLp);
 
         params = new WindowManager.LayoutParams(
-                dp(138), dp(66),
+                dp(158), dp(66),
                 Build.VERSION.SDK_INT >= 26
                         ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                         : WindowManager.LayoutParams.TYPE_PHONE,
@@ -459,12 +459,19 @@ public class FloatingScannerService extends Service {
     private void showBadge(String signal, float score) {
         if (badge == null) return;
         badge.setText(signal + " " + String.format(Locale.US, "%.0f%%", score));
+        badge.setVisibility(View.VISIBLE);
         setBadgeBackground(true, "UP".equals(signal));
+    }
+
+    private void hideBadge() {
+        if (badge == null) return;
+        badge.setVisibility(View.GONE);
     }
 
     private void setBadgeText(String text) {
         if (badge == null) return;
         badge.setText(text);
+        badge.setVisibility(View.VISIBLE);
         setBadgeBackground(false, false);
     }
 
