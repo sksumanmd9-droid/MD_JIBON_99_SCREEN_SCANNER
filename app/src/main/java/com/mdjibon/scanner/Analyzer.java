@@ -22,7 +22,7 @@ public final class Analyzer {
     public static final int TOTAL_RULES = 20000;
 
     public static final class Result {
-        public String signal = "UP";
+        public String signal = "NO SIGNAL";
         public boolean strongSignal = false;
         public double confidence;
         public double quality;
@@ -93,11 +93,11 @@ public final class Analyzer {
             out.detectedCandles = candles.size();
             out.quality = chartQuality(candles);
 
-            if (candles.size() < 12) {
-                out.signal = "UP";
+            if (candles.size() < 6) {
+                out.signal = "NO SIGNAL";
                 out.strongSignal = false;
                 out.currentCandleColor = "UNKNOWN";
-                out.checks.add("Only " + candles.size() + " real candles detected; minimum is 12.");
+                out.checks.add("Only " + candles.size() + " real candles detected; minimum is 6.");
                 out.checks.add("No synthetic candle fallback was used.");
                 return out;
             }
