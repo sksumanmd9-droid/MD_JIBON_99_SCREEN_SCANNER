@@ -4,106 +4,11 @@
     android:height="64dp"
     android:viewportWidth="64"
     android:viewportHeight="64">
-
-    <!-- Dark rounded background -->
-    <path
-        android:fillColor="#06111D"
-        android:pathData="
-            M16,2
-            L48,2
-            C55.7,2 62,8.3 62,16
-            L62,48
-            C62,55.7 55.7,62 48,62
-            L16,62
-            C8.3,62 2,55.7 2,48
-            L2,16
-            C2,8.3 8.3,2 16,2
-            Z" />
-
-    <!-- Neon cyan circular ring -->
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#28DCFF"
-        android:strokeWidth="2.2"
-        android:pathData="
-            M32,8
-            A24,24 0,1 0,32,56
-            A24,24 0,1 0,32,8" />
-
-    <!-- Rising chart line -->
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#20F0A0"
-        android:strokeWidth="2.2"
-        android:pathData="
-            M15,43
-            L23,34
-            L30,40
-            L42,25
-            L51,30" />
-
-    <!-- Green candlesticks -->
-    <path
-        android:fillColor="#20F0A0"
-        android:pathData="
-            M15,47
-            L20,47
-            L20,37
-            L15,37
-            Z
-
-            M23,47
-            L28,47
-            L28,29
-            L23,29
-            Z
-
-            M31,47
-            L36,47
-            L36,34
-            L31,34
-            Z
-
-            M39,47
-            L44,47
-            L44,21
-            L39,21
-            Z" />
-
-    <!-- Cyan MD left mark -->
-    <path
-        android:fillColor="#28DCFF"
-        android:pathData="
-            M13,21
-            L13,17
-            L28,17
-            L28,21
-            L23,21
-            L23,28
-            L18,28
-            L18,21
-            Z" />
-
-    <!-- Cyan MD right mark -->
-    <path
-        android:fillColor="#28DCFF"
-        android:pathData="
-            M41,17
-            L51,17
-            L51,22
-            L46,22
-            L46,28
-            L41,28
-            Z" />
-
-    <!-- Additional chart block -->
-    <path
-        android:fillColor="#28DCFF"
-        android:pathData="
-            M48,25
-            L54,25
-            L54,31
-            L48,31
-            Z" />
-
+    <path android:fillColor="#06111D" android:pathData="M16,2 L48,2 C55.7,2 62,8.3 62,16 L62,48 C62,55.7 55.7,62 48,62 L16,62 C8.3,62 2,55.7 2,48 L2,16 C2,8.3 8.3,2 16,2 Z" />
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#28DCFF" android:strokeWidth="2.2" android:pathData="M32,8 A24,24 0,1 0,32,56 A24,24 0,1 0,32,8" />
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#20F0A0" android:strokeWidth="2.2" android:pathData="M15,43 L23,34 L30,40 L42,25 L51,30" />
+    <path android:fillColor="#20F0A0" android:pathData="M15,47 L20,47 L20,37 L15,37 Z M23,47 L28,47 L28,29 L23,29 Z M31,47 L36,47 L36,34 L31,34 Z M39,47 L44,47 L44,21 L39,21 Z" />
+    <path android:fillColor="#28DCFF" android:pathData="M13,21 L13,17 L28,17 L28,21 L23,21 L23,28 L18,28 L18,21 Z" />
+    <path android:fillColor="#28DCFF" android:pathData="M41,17 L51,17 L51,22 L46,22 L46,28 L41,28 Z" />
+    <path android:fillColor="#28DCFF" android:pathData="M48,25 L54,25 L54,31 L48,31 Z" />
 </vector>
