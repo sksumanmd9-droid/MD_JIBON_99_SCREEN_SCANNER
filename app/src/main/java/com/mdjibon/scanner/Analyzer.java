@@ -22,7 +22,7 @@ public final class Analyzer {
     public static final int TOTAL_RULES = 20000;
 
     public static final class Result {
-        public String signal = "NO SIGNAL";
+        public String signal = "UP";
         public boolean strongSignal = false;
         public double confidence;
         public double quality;
@@ -94,7 +94,7 @@ public final class Analyzer {
             out.quality = chartQuality(candles);
 
             if (candles.size() < 12) {
-                out.signal = "NO SIGNAL";
+                out.signal = "UP";
                 out.strongSignal = false;
                 out.currentCandleColor = "UNKNOWN";
                 out.checks.add("Only " + candles.size() + " real candles detected; minimum is 12.");
