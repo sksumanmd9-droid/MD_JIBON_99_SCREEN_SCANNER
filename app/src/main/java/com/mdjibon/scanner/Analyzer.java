@@ -22,7 +22,7 @@ public final class Analyzer {
     public static final int TOTAL_RULES = 20000;
 
     public static final class Result {
-        public String signal = "UP";
+        public String signal = "NO SIGNAL";
         public boolean strongSignal = false;
         public double confidence;
         public double quality;
@@ -94,7 +94,7 @@ public final class Analyzer {
             out.quality = chartQuality(candles);
 
             if (candles.size() < 12) {
-                out.signal = "UP";
+                out.signal = "NO SIGNAL";
                 out.strongSignal = false;
                 out.currentCandleColor = "UNKNOWN";
                 out.checks.add("Only " + candles.size() + " real candles detected; minimum is 12.");
@@ -192,15 +192,9 @@ public final class Analyzer {
             // is sufficient. The displayed percentage is evidence strength,
             // not a guaranteed market win probability.
             double edge = clamp(0.55 * Math.abs(signed) + 0.45 * directionalAgreement, 0, 1);
-            out.confidence = clamp(50.0 + edge * 50.0, 50.0, 97.0);
+            out.confidence = clamp(50.0 + edge * 47.0, 50.0, 97.0);
             boolean bullDirection = signed >= 0;
-
-            // A single scan may be directionally interesting without being a
-            // strong signal. FloatingScannerService performs the final 3-5 scan
-            // confirmation. Keep strongSignal honest here: it must also reach
-            // the 90% evidence threshold and pass quality/agreement gates.
-            boolean enoughEvidence = out.confidence >= 90.0
-                    && Math.max(bullRatio, bearRatio) >= 0.25
+            boolean enoughEvidence = Math.max(bullRatio, bearRatio) >= 0.25
                     && directionalAgreement >= 0.065
                     && Math.abs(signed) >= 0.065
                     && out.quality >= 48.0;
