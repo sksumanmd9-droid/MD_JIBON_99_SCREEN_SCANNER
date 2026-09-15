@@ -118,10 +118,10 @@ public class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(16), dp(10), dp(16), dp(8));
 
-        TextView logo = text("MD\nJIBON", 10, true);
-        logo.setGravity(Gravity.CENTER);
-        logo.setTextColor(Color.rgb(60, 245, 160));
-        logo.setBackgroundColor(Color.rgb(7, 28, 36));
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.md_jibon_logo);
+        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        logo.setContentDescription("MD JIBON Logo");
         header.addView(logo, lp(dp(58), dp(54)));
 
         title = text("MD JIBON", 21, true);
@@ -361,46 +361,23 @@ public class MainActivity extends Activity {
     }
 
     private void showResult(Intent intent) {
-        showScan();
+        if (status == null) showScan();
         String s = intent.getStringExtra("signal");
         float sc = intent.getFloatExtra("score", 0f);
         boolean strong = intent.getBooleanExtra("strong", false);
-
-        signal.setText(s == null ? "--" : s);
-        signal.setTextColor("UP".equals(s)
-                ? Color.rgb(60, 245, 155)
-                : Color.rgb(255, 70, 85));
-        score.setText(String.format(Locale.US, "Evidence %.1f%%", sc));
-
-        details.setText(
-                "Market: " + market() + "\n" +
-                "Timeframe: " + timeframe() + "\n" +
-                "Current candle: " + intent.getStringExtra("currentColor") + "\n" +
-                "Next candle may be: " + intent.getStringExtra("nextColor") + "\n" +
-                "Expected size: " + intent.getStringExtra("nextSize") + "\n" +
-                "Detected candles: " + intent.getIntExtra("candles", 0) + "\n" +
-                "Logic checks: " + intent.getIntExtra("rules", 0) + "\n" +
-                "Strong agreement: " + (strong ? "YES" : "NO")
-        );
-        status.setText(strong ? "STRONG EVIDENCE IN THIS SCAN â€¢ CONFIRMING" : "SCAN RESULT â€¢ CONFIRMING WITH OTHER SCANS");
+        if (status != null) {
+            status.setText(strong
+                    ? "STRONG EVIDENCE â€¢ FLOATING ICON WILL SHOW FINAL SIGNAL"
+                    : "SCAN CHECK RECEIVED â€¢ CONTINUING MULTI-SCAN ANALYSIS");
+        }
     }
 
     private void showAnalyzerResult(Analyzer.Result r, Bitmap ignored) {
-        signal.setText(r.signal);
-        signal.setTextColor("UP".equals(r.signal)
-                ? Color.rgb(60, 245, 155)
-                : Color.rgb(255, 70, 85));
-        score.setText(String.format(Locale.US, "Evidence %.1f%%", r.confidence));
-        details.setText(
-                "Market: " + market() + "\n" +
-                "Timeframe: " + timeframe() + "\n" +
-                "Current candle: " + r.currentCandleColor + "\n" +
-                "Next candle may be: " + r.nextCandleColor + "\n" +
-                "Expected size: " + r.nextCandleSize + "\n" +
-                "Detected candles: " + r.detectedCandles + "\n" +
-                "Logic checks: " + r.evaluatedRules + "\n" +
-                "Strong agreement: " + (r.strongSignal ? "YES" : "NO")
-        );
+        if (status != null) {
+            status.setText(r.strongSignal
+                    ? "STRONG EVIDENCE â€¢ FINAL SIGNAL IS SHOWN ON FLOATING ICON"
+                    : "ANALYZED â€¢ WAITING FOR STRONG LIVE AGREEMENT");
+        }
     }
 
     private void chooseMarket() {
