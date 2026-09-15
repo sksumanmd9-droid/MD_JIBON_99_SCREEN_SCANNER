@@ -296,11 +296,7 @@ public class FloatingScannerService extends Service {
         if (success) {
             setBadgeText(message == null ? "DONE" : message);
         } else {
-            if (message != null && message.contains("CORTEX CHART NOT DETECTED")) {
-                setBadgeText("CORTEX ONLY");
-            } else {
-                setBadgeText("SCAN ERROR");
-            }
+            setBadgeText("SCAN ERROR");
             Toast.makeText(
                     FloatingScannerService.this,
                     message == null ? "Scan failed." : message,
@@ -360,13 +356,13 @@ public class FloatingScannerService extends Service {
         badge.setTextColor(Color.WHITE);
         setBadgeBackground(false, false);
 
-        FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(dp(92), dp(28));
-        badgeLp.leftMargin = dp(64);
+        FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(dp(72), dp(28));
+        badgeLp.leftMargin = dp(62);
         badgeLp.topMargin = dp(18);
         bubble.addView(badge, badgeLp);
 
         params = new WindowManager.LayoutParams(
-                dp(158), dp(66),
+                dp(138), dp(66),
                 Build.VERSION.SDK_INT >= 26
                         ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                         : WindowManager.LayoutParams.TYPE_PHONE,
