@@ -1,25 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- Floating overlay permission -->
-    <uses-permission
-        android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-
-    <!-- Foreground service -->
-    <uses-permission
-        android:name="android.permission.FOREGROUND_SERVICE" />
-
-    <!-- Screen capture / MediaProjection -->
-    <uses-permission
-        android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-
-    <!-- Floating scanner special-use foreground service -->
-    <uses-permission
-        android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-
-    <!-- Android 13+ notifications -->
-    <uses-permission
-        android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"
@@ -29,38 +14,29 @@
         android:roundIcon="@drawable/md_jibon_logo"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
-        <!-- Main application screen -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize">
-
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
         </activity>
 
-        <!-- Screen capture service -->
         <service
             android:name=".ScreenCaptureService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
-        <!-- Floating scanner service -->
         <service
             android:name=".FloatingScannerService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
-
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="floating screen scanner overlay" />
-
         </service>
-
     </application>
-
 </manifest>
