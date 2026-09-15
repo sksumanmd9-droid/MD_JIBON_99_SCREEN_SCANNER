@@ -208,15 +208,15 @@ public class MainActivity extends Activity {
         preview.setBackgroundColor(Color.rgb(7, 15, 25));
         content.addView(preview, lp(-1, dp(285)));
 
-        signal = text("--", 48, true);
+        signal = text("FLOATING ICON", 28, true);
         signal.setGravity(Gravity.CENTER);
-        signal.setTextColor(Color.WHITE);
-        content.addView(signal, lp(-1, dp(80)));
+        signal.setTextColor(Color.rgb(70, 190, 255));
+        content.addView(signal, lp(-1, dp(70)));
 
-        score = text("Evidence --", 21, true);
+        score = text("FINAL SIGNAL APPEARS ONLY AFTER STRONG ANALYSIS", 13, true);
         score.setGravity(Gravity.CENTER);
-        score.setTextColor(Color.rgb(70, 190, 255));
-        content.addView(score, lp(-1, dp(48)));
+        score.setTextColor(Color.rgb(120, 180, 220));
+        content.addView(score, lp(-1, dp(54)));
 
         details = text(
                 "Current screen analysis only.\nNo historical results are kept inside the app.",
