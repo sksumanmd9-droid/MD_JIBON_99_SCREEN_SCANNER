@@ -120,8 +120,7 @@ public class MainActivity extends Activity {
 
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.md_jibon_logo);
-        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        logo.setContentDescription("MD JIBON Logo");
+        logo.setScaleType(ImageView.ScaleType.CENTER_CROP);
         header.addView(logo, lp(dp(58), dp(54)));
 
         title = text("MD JIBON", 21, true);
@@ -178,7 +177,7 @@ public class MainActivity extends Activity {
         row.addView(timeframe, tfp);
         content.addView(row);
 
-        Button scan = primary("START 5-SCAN ANALYSIS");
+        Button scan = primary("START CONTINUOUS SCAN");
         scan.setOnClickListener(v -> startContinuous());
         content.addView(scan, lp(-1, dp(64)));
 
@@ -225,7 +224,7 @@ public class MainActivity extends Activity {
         details.setTextColor(Color.LTGRAY);
         content.addView(details, lp(-1, dp(120)));
 
-        Button b = primary("START / RESTART 5-SCAN ANALYSIS");
+        Button b = primary("START / RESTART SCAN");
         b.setOnClickListener(v -> startContinuous());
         content.addView(b, lp(-1, dp(58)));
     }
@@ -270,7 +269,7 @@ public class MainActivity extends Activity {
         }
 
         startFloatingService();
-        status.setText("ANALYZING â€¢ UP TO 5 CURRENT-SCREEN SCANS...");
+        status.setText("SCANNING LIVE â€¢ WAITING FOR STRONG SIGNAL...");
     }
 
     private void startFloatingService() {
@@ -361,23 +360,42 @@ public class MainActivity extends Activity {
     }
 
     private void showResult(Intent intent) {
-        if (status == null) showScan();
+        showScan();
         String s = intent.getStringExtra("signal");
         float sc = intent.getFloatExtra("score", 0f);
         boolean strong = intent.getBooleanExtra("strong", false);
-        if (status != null) {
-            status.setText(strong
-                    ? "STRONG EVIDENCE â€¢ FLOATING ICON WILL SHOW FINAL SIGNAL"
-                    : "SCAN CHECK RECEIVED â€¢ CONTINUING MULTI-SCAN ANALYSIS");
-        }
+
+        signal.setText("FLOATING ICON");
+        signal.setTextColor(Color.rgb(70, 190, 255));
+        score.setText("FINAL SIGNAL APPEARS ON ICON");
+
+        details.setText(
+                "Market: " + market() + "\n" +
+                "Timeframe: " + timeframe() + "\n" +
+                "Current candle: " + intent.getStringExtra("currentColor") + "\n" +
+                "Next candle may be: " + intent.getStringExtra("nextColor") + "\n" +
+                "Expected size: " + intent.getStringExtra("nextSize") + "\n" +
+                "Detected candles: " + intent.getIntExtra("candles", 0) + "\n" +
+                "Logic checks: " + intent.getIntExtra("rules", 0) + "\n" +
+                "Strong agreement: " + (strong ? "YES" : "NO")
+        );
+        status.setText(strong ? "STRONG SIGNAL FOUND â€¢ SCAN STOPPED" : "SCANNING â€¢ WAITING FOR STRONG AGREEMENT");
     }
 
     private void showAnalyzerResult(Analyzer.Result r, Bitmap ignored) {
-        if (status != null) {
-            status.setText(r.strongSignal
-                    ? "STRONG EVIDENCE â€¢ FINAL SIGNAL IS SHOWN ON FLOATING ICON"
-                    : "ANALYZED â€¢ WAITING FOR STRONG LIVE AGREEMENT");
-        }
+        signal.setText("FLOATING ICON");
+        signal.setTextColor(Color.rgb(70, 190, 255));
+        score.setText("FINAL SIGNAL APPEARS ON ICON");
+        details.setText(
+                "Market: " + market() + "\n" +
+                "Timeframe: " + timeframe() + "\n" +
+                "Current candle: " + r.currentCandleColor + "\n" +
+                "Next candle may be: " + r.nextCandleColor + "\n" +
+                "Expected size: " + r.nextCandleSize + "\n" +
+                "Detected candles: " + r.detectedCandles + "\n" +
+                "Logic checks: " + r.evaluatedRules + "\n" +
+                "Strong agreement: " + (r.strongSignal ? "YES" : "NO")
+        );
     }
 
     private void chooseMarket() {
