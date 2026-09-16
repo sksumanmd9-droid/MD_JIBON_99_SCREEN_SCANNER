@@ -7,16 +7,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 
 /**
- * MD JIBON SCREEN SCANNER
+ * Screenshot/chart analyzer.
  *
- * 20,000 parameterized evidence probes.
- *
- * IMPORTANT:
- * The displayed confidence is an evidence score.
- * It is NOT a guaranteed market win probability.
+ * The 20,000 checks are parameterized probes across several feature families.
+ * They are evidence checks, not 1000 independent proven indicators.
+ * Confidence is an evidence score and must not be interpreted as a
+ * guaranteed real-market win probability.
  */
 public final class Analyzer {
 
@@ -26,33 +24,34 @@ public final class Analyzer {
 
     public static final class Result {
 
-        public String signal = "NO SIGNAL";
+        public String signal = "UP";
         public boolean strongSignal = false;
 
-        public double confidence = 50.0;
-        public double quality = 0.0;
+        public double confidence;
+        public double quality;
 
-        public int bullishCount = 0;
-        public int bearishCount = 0;
+        public int bullishCount;
+        public int bearishCount;
         public int neutralCount = TOTAL_RULES;
 
-        public int detectedCandles = 0;
-        public int evaluatedRules = 0;
+        public int detectedCandles;
+        public int evaluatedRules;
 
         public String timeframe = "1 MIN";
 
         public String currentCandleColor = "UNKNOWN";
-        public double currentBodyRatio = 0.0;
+        public double currentBodyRatio;
 
         public String nextCandleColor = "UNKNOWN";
         public String nextCandleSize = "UNKNOWN";
 
-        public double nextBodyRatio = 0.0;
-        public double nextUpperWickRatio = 0.0;
-        public double nextLowerWickRatio = 0.0;
-        public double nextRangeRatio = 0.0;
+        public double nextBodyRatio;
+        public double nextUpperWickRatio;
+        public double nextLowerWickRatio;
+        public double nextRangeRatio;
 
-        public final List<String> checks = new ArrayList<>();
+        public final List<String> checks =
+                new ArrayList<>();
     }
 
     private static final class Candle {
@@ -70,7 +69,10 @@ public final class Analyzer {
         }
 
         float range() {
-            return Math.max(0.001f, high - low);
+            return Math.max(
+                    0.001f,
+                    high - low
+            );
         }
 
         float upperWick() {
@@ -88,11 +90,7 @@ public final class Analyzer {
         }
 
         float bodyRatio() {
-            return clampFloat(
-                    body() / range(),
-                    0f,
-                    1f
-            );
+            return body() / range();
         }
     }
 
@@ -111,17 +109,16 @@ public final class Analyzer {
 
         final double value;
 
-        Probe(double value) {
-            this.value = clamp(
-                    value,
-                    -1.0,
-                    1.0
-            );
+        Probe(double v) {
+            value = clamp(v, -1, 1);
         }
     }
 
     public static Result analyze(Bitmap source) {
-        return analyze(source, "1 MIN");
+        return analyze(
+                source,
+                "1 MIN"
+        );
     }
 
     public static Result analyze(
@@ -136,7 +133,8 @@ public final class Analyzer {
                         ? "1 MIN"
                         : timeframe;
 
-        if (source == null || source.isRecycled()) {
+        if (source == null
+                || source.isRecycled()) {
 
             out.checks.add(
                     "No screenshot supplied."
@@ -146,6 +144,7 @@ public final class Analyzer {
         }
 
         Bitmap work = source;
+
         boolean scaled = false;
 
         try {
@@ -154,15 +153,14 @@ public final class Analyzer {
 
             if (source.getWidth() > maxW) {
 
-                int newHeight =
+                int h =
                         Math.max(
                                 1,
                                 Math.round(
                                         source.getHeight()
                                                 * (
                                                 maxW
-                                                        / (float)
-                                                        source.getWidth()
+                                                        / (float) source.getWidth()
                                         )
                                 )
                         );
@@ -171,7 +169,7 @@ public final class Analyzer {
                         Bitmap.createScaledBitmap(
                                 source,
                                 maxW,
-                                newHeight,
+                                h,
                                 true
                         );
 
@@ -189,9 +187,8 @@ public final class Analyzer {
 
             if (candles.size() < 12) {
 
-                out.signal = "NO SIGNAL";
+                out.signal = "UP";
                 out.strongSignal = false;
-                out.confidence = 50.0;
 
                 out.currentCandleColor =
                         "UNKNOWN";
@@ -199,15 +196,11 @@ public final class Analyzer {
                 out.checks.add(
                         "Only "
                                 + candles.size()
-                                + " real candles detected."
+                                + " real candles detected; minimum is 12."
                 );
 
                 out.checks.add(
-                        "Minimum required: 12."
-                );
-
-                out.checks.add(
-                        "No artificial candle fallback used."
+                        "No synthetic candle fallback was used."
                 );
 
                 return out;
@@ -226,33 +219,29 @@ public final class Analyzer {
             out.currentBodyRatio =
                     last.bodyRatio() * 100.0;
 
-            /*
-             * =========================================================
-             * 20,000 EVIDENCE PROBES
-             * =========================================================
-             */
-
             List<Probe> probes =
                     new ArrayList<>(
                             TOTAL_RULES
                     );
 
-            /*
-             * 5,000 TREND / STRUCTURE
-             */
+            // ========================================================
+            // 1-5000 : TREND / MARKET STRUCTURE
+            // ========================================================
+
             for (int i = 0; i < 5000; i++) {
 
-                int maxWindow =
-                        Math.min(
-                                24,
-                                Math.max(
-                                        5,
-                                        candles.size() - 1
+                int window =
+                        4
+                                + (
+                                i
+                                        % Math.min(
+                                        24,
+                                        Math.max(
+                                                5,
+                                                candles.size() - 1
+                                        )
                                 )
                         );
-
-                int window =
-                        4 + (i % maxWindow);
 
                 double trend =
                         slopeNormalized(
@@ -270,20 +259,11 @@ public final class Analyzer {
                         );
 
                 double value =
-                        0.58 * trend
-                                + 0.42 * move;
+                        0.55 * trend
+                                + 0.45 * move;
 
-                /*
-                 * Small weighting variation prevents every
-                 * probe from being mathematically identical.
-                 */
-                if ((i % 11) == 0) {
-                    value *= 0.82;
-                }
-
-                if ((i % 17) == 0) {
-                    value +=
-                            0.04 * trend;
+                if ((i & 7) == 0) {
+                    value *= 0.75;
                 }
 
                 probes.add(
@@ -291,9 +271,10 @@ public final class Analyzer {
                 );
             }
 
-            /*
-             * 5,000 MOMENTUM
-             */
+            // ========================================================
+            // 5001-10000 : MOMENTUM / ROC / RSI
+            // ========================================================
+
             for (int i = 0; i < 5000; i++) {
 
                 int period =
@@ -314,15 +295,15 @@ public final class Analyzer {
                                                 21
                                         )
                                 )
-                                        - 50.0
+                                        - 50
                         ) / 50.0;
 
                 double value =
-                        0.54 * roc
-                                + 0.46 * r;
+                        0.52 * roc
+                                + 0.48 * r;
 
-                if ((i % 7) == 0) {
-                    value *= 0.84;
+                if ((i & 5) == 0) {
+                    value *= 0.82;
                 }
 
                 probes.add(
@@ -330,13 +311,15 @@ public final class Analyzer {
                 );
             }
 
-            /*
-             * 4,000 CANDLE GEOMETRY
-             */
+            // ========================================================
+            // 10001-14000 : CANDLE GEOMETRY / PATTERNS
+            // ========================================================
+
             for (int i = 0; i < 4000; i++) {
 
                 int offset =
-                        i % Math.min(
+                        i
+                                % Math.min(
                                 10,
                                 candles.size()
                         );
@@ -348,7 +331,7 @@ public final class Analyzer {
                         );
 
                 if ((i % 9) == 0) {
-                    value *= 0.74;
+                    value *= 0.70;
                 }
 
                 probes.add(
@@ -356,28 +339,29 @@ public final class Analyzer {
                 );
             }
 
-            /*
-             * 3,000 LEVEL / VOLATILITY
-             */
+            // ========================================================
+            // 14001-17000 : LEVEL / VOLATILITY
+            // ========================================================
+
             for (int i = 0; i < 3000; i++) {
 
                 int period =
                         6 + (i % 24);
 
-                double value =
-                        levelVolatilityScore(
-                                candles,
-                                period
-                        );
-
                 probes.add(
-                        new Probe(value)
+                        new Probe(
+                                levelVolatilityScore(
+                                        candles,
+                                        period
+                                )
+                        )
                 );
             }
 
-            /*
-             * MAIN FAMILY SCORES
-             */
+            // ========================================================
+            // 17001-20000 : CROSS-FAMILY CONFIRMATION
+            // ========================================================
+
             double trend =
                     trendScore(candles);
 
@@ -402,122 +386,102 @@ public final class Analyzer {
                             0
                     );
 
-            /*
-             * 3,000 CROSS-FAMILY CONFIRMATION
-             */
             for (int i = 0; i < 3000; i++) {
 
-                double value;
+                double v;
 
-                switch (i % 12) {
+                switch (i % 10) {
 
                     case 0:
-                        value =
-                                0.70 * trend
-                                        + 0.30 * momentum;
+                        v =
+                                0.65 * trend
+                                        + 0.35 * momentum;
                         break;
 
                     case 1:
-                        value =
-                                0.65 * momentum
-                                        + 0.35 * pattern;
+                        v =
+                                0.60 * momentum
+                                        + 0.40 * pattern;
                         break;
 
                     case 2:
-                        value =
-                                0.62 * pattern
-                                        + 0.38 * level;
+                        v =
+                                0.60 * pattern
+                                        + 0.40 * level;
                         break;
 
                     case 3:
-                        value =
-                                0.68 * trend
-                                        + 0.32 * level;
+                        v =
+                                0.60 * trend
+                                        + 0.40 * level;
                         break;
 
                     case 4:
-                        value =
-                                0.58 * geometry
-                                        + 0.42 * pattern;
+                        v =
+                                0.55 * geometry
+                                        + 0.45 * pattern;
                         break;
 
                     case 5:
-                        value =
-                                0.45 * trend
+                        v =
+                                0.40 * trend
                                         + 0.35 * momentum
-                                        + 0.20 * level;
+                                        + 0.25 * level;
                         break;
 
                     case 6:
-                        value =
-                                0.42 * trend
-                                        + 0.58 * geometry;
+                        v =
+                                0.45 * trend
+                                        + 0.55 * geometry;
                         break;
 
                     case 7:
-                        value =
-                                0.52 * momentum
-                                        + 0.48 * level;
+                        v =
+                                0.50 * momentum
+                                        + 0.50 * level;
                         break;
 
                     case 8:
-                        value =
+                        v =
                                 0.35 * trend
                                         + 0.30 * pattern
                                         + 0.35 * geometry;
                         break;
 
-                    case 9:
-                        value =
-                                0.30 * trend
-                                        + 0.35 * momentum
-                                        + 0.35 * pattern;
-                        break;
-
-                    case 10:
-                        value =
-                                0.40 * pattern
-                                        + 0.30 * level
-                                        + 0.30 * geometry;
-                        break;
-
                     default:
-                        value =
+                        v =
                                 (
                                         trend
                                                 + momentum
                                                 + pattern
                                                 + level
-                                                + geometry
-                                ) / 5.0;
+                                ) / 4.0;
                         break;
                 }
 
                 probes.add(
-                        new Probe(value)
+                        new Probe(v)
                 );
             }
 
-            /*
-             * =========================================================
-             * COUNT ALL 20,000 PROBES
-             * =========================================================
-             */
+            // ========================================================
+            // COUNT ALL PROBES
+            // ========================================================
 
-            double sum = 0.0;
+            double sum = 0;
 
             int bull = 0;
             int bear = 0;
 
-            for (Probe probe : probes) {
+            for (Probe p : probes) {
 
-                sum += probe.value;
+                sum += p.value;
 
-                if (probe.value > 0.10) {
+                if (p.value > 0.10) {
 
                     bull++;
 
-                } else if (probe.value < -0.10) {
+                } else if (p.value < -0.10) {
 
                     bear++;
                 }
@@ -540,34 +504,18 @@ public final class Analyzer {
                                     - bear
                     );
 
-            /*
-             * =========================================================
-             * DIRECTION
-             * =========================================================
-             */
+            // ========================================================
+            // EVIDENCE CALCULATION
+            // ========================================================
 
             double signed =
-                    sum
-                            / Math.max(
-                            1,
-                            probes.size()
-                    );
+                    sum / TOTAL_RULES;
 
             double bullRatio =
-                    bull
-                            / (double)
-                            Math.max(
-                                    1,
-                                    probes.size()
-                            );
+                    bull / (double) TOTAL_RULES;
 
             double bearRatio =
-                    bear
-                            / (double)
-                            Math.max(
-                                    1,
-                                    probes.size()
-                            );
+                    bear / (double) TOTAL_RULES;
 
             double directionalAgreement =
                     Math.abs(
@@ -576,88 +524,28 @@ public final class Analyzer {
                     );
 
             /*
-             * Family agreement.
-             *
-             * This prevents one feature family from dominating
-             * the entire result.
-             */
-            double familyDirection =
-                    (
-                            trend
-                                    + momentum
-                                    + pattern
-                                    + level
-                                    + geometry
-                    ) / 5.0;
-
-            double familyAgreement =
-                    (
-                            Math.abs(trend)
-                                    + Math.abs(momentum)
-                                    + Math.abs(pattern)
-                                    + Math.abs(level)
-                                    + Math.abs(geometry)
-                    ) / 5.0;
-
-            double directionAgreement =
-                    clamp(
-                            0.55
-                                    * Math.abs(signed)
-                                    + 0.25
-                                    * directionalAgreement
-                                    + 0.20
-                                    * Math.abs(
-                                    familyDirection
-                            ),
-                            0.0,
-                            1.0
-                    );
-
-            /*
-             * Quality factor.
-             */
-            double qualityFactor =
-                    clamp(
-                            out.quality / 100.0,
-                            0.0,
-                            1.0
-                    );
-
-            /*
-             * Final evidence.
-             *
-             * This is deliberately balanced so a strong chart can
-             * actually reach the 90+ evidence zone without pretending
-             * that 90 means a guaranteed 90% win rate.
+             * Balanced decision around zero.
+             * This prevents one family from forcing UP
+             * on every screenshot.
              */
             double edge =
                     clamp(
-                            0.72
-                                    * directionAgreement
-                                    + 0.18
-                                    * familyAgreement
-                                    + 0.10
-                                    * qualityFactor,
-                            0.0,
-                            1.0
+                            0.55 * Math.abs(signed)
+                                    + 0.45 * directionalAgreement,
+                            0,
+                            1
                     );
 
             out.confidence =
                     clamp(
-                            50.0
-                                    + edge * 47.0,
+                            50.0 + edge * 47.0,
                             50.0,
                             97.0
                     );
 
-            boolean bullish =
-                    signed >= 0.0;
+            boolean bullDirection =
+                    signed >= 0;
 
-            /*
-             * Strong evidence requirements.
-             *
-             * These are evidence thresholds, not win-rate claims.
-             */
             boolean enoughEvidence =
                     Math.max(
                             bullRatio,
@@ -666,33 +554,21 @@ public final class Analyzer {
 
                             && directionalAgreement >= 0.065
 
-                            && Math.abs(signed) >= 0.055
+                            && Math.abs(signed) >= 0.065
 
-                            && Math.abs(familyDirection) >= 0.055
-
-                            && out.quality >= 45.0
-
-                            && out.confidence >= 90.0;
+                            && out.quality >= 48.0;
 
             out.signal =
-                    bullish
+                    bullDirection
                             ? "UP"
                             : "DOWN";
 
             out.strongSignal =
                     enoughEvidence;
 
-            /*
-             * If evidence is not strong, do not expose a fake
-             * strong direction.
-             */
-            if (!out.strongSignal) {
-
-                out.signal =
-                        bullish
-                                ? "UP"
-                                : "DOWN";
-            }
+            // ========================================================
+            // NEXT CANDLE PREDICTION
+            // ========================================================
 
             fillPrediction(
                     out,
@@ -702,11 +578,9 @@ public final class Analyzer {
                     momentum
             );
 
-            /*
-             * =========================================================
-             * DEBUG / EVIDENCE SUMMARY
-             * =========================================================
-             */
+            // ========================================================
+            // CHECK REPORT
+            // ========================================================
 
             out.checks.add(
                     "Trend / Structure: "
@@ -729,32 +603,18 @@ public final class Analyzer {
             );
 
             out.checks.add(
-                    "Candle Geometry: "
-                            + percent(geometry)
+                    "Volatility: "
+                            + percent(level)
             );
 
             out.checks.add(
-                    "Chart quality: "
-                            + String.format(
-                            Locale.US,
-                            "%.1f%%",
-                            out.quality
-                    )
-            );
-
-            out.checks.add(
-                    "Bull probes: "
+                    "Directional bull probes: "
                             + bull
             );
 
             out.checks.add(
-                    "Bear probes: "
+                    "Directional bear probes: "
                             + bear
-            );
-
-            out.checks.add(
-                    "Neutral probes: "
-                            + out.neutralCount
             );
 
             out.checks.add(
@@ -762,16 +622,11 @@ public final class Analyzer {
             );
 
             out.checks.add(
-                    "Strong evidence: "
-                            + (
-                            out.strongSignal
-                                    ? "YES"
-                                    : "NO"
-                    )
+                    "Candle order: oldest to newest."
             );
 
             out.checks.add(
-                    "No artificial candle fallback used."
+                    "No artificial candle fallback was used."
             );
 
             return out;
@@ -787,11 +642,9 @@ public final class Analyzer {
         }
     }
 
-    /*
-     * ===============================================================
-     * CANDLE EXTRACTION
-     * ===============================================================
-     */
+    // ================================================================
+    // CANDLE EXTRACTION
+    // ================================================================
 
     private static List<Candle> extractCandles(
             Bitmap bmp
@@ -804,22 +657,18 @@ public final class Analyzer {
                 bmp.getHeight();
 
         /*
-         * Portrait chart area.
+         * Chart ROI for portrait Quotex/Cortex-style screenshots.
          */
         int top =
                 Math.max(
                         0,
-                        Math.round(
-                                h * 0.055f
-                        )
+                        Math.round(h * 0.055f)
                 );
 
         int bottom =
                 Math.min(
                         h - 1,
-                        Math.round(
-                                h * 0.755f
-                        )
+                        Math.round(h * 0.755f)
                 );
 
         int left =
@@ -833,76 +682,75 @@ public final class Analyzer {
                 );
 
         int mh =
-                bottom
-                        - top
-                        + 1;
+                bottom - top + 1;
 
-        boolean[][] green =
+        boolean[][] g =
                 new boolean[w][mh];
 
-        boolean[][] red =
+        boolean[][] r =
                 new boolean[w][mh];
 
-        for (int x = left;
-             x <= right;
-             x++) {
+        // ============================================================
+        // COLOR MASK
+        // ============================================================
 
-            for (int y = top;
-                 y <= bottom;
-                 y++) {
+        for (int x = left; x <= right; x++) {
 
-                int color =
+            for (int y = top; y <= bottom; y++) {
+
+                int c =
                         bmp.getPixel(
                                 x,
                                 y
                         );
 
-                green[x][y - top] =
-                        isGreen(color);
+                g[x][y - top] =
+                        isGreen(c);
 
-                red[x][y - top] =
-                        isRed(color);
+                r[x][y - top] =
+                        isRed(c);
             }
         }
 
-        /*
-         * Remove isolated pixels but preserve candle bodies.
-         */
+        // ============================================================
+        // 3x3 EROSION
+        // ============================================================
+
         boolean[][] mask =
                 new boolean[w][mh];
 
-        for (int x = left + 1;
-             x < right;
-             x++) {
+        for (
+                int x = left + 1;
+                x < right;
+                x++
+        ) {
 
-            for (int y = 1;
-                 y < mh - 1;
-                 y++) {
+            for (
+                    int y = 1;
+                    y < mh - 1;
+                    y++
+            ) {
 
-                boolean g =
-                        green[x][y]
-                                && (
-                                green[x - 1][y]
-                                        || green[x + 1][y]
-                                        || green[x][y - 1]
-                                        || green[x][y + 1]
-                        );
+                boolean green =
+                        g[x][y]
+                                && g[x - 1][y]
+                                && g[x + 1][y]
+                                && g[x][y - 1]
+                                && g[x][y + 1];
 
-                boolean r =
-                        red[x][y]
-                                && (
-                                red[x - 1][y]
-                                        || red[x + 1][y]
-                                        || red[x][y - 1]
-                                        || red[x][y + 1]
-                        );
+                boolean red =
+                        r[x][y]
+                                && r[x - 1][y]
+                                && r[x + 1][y]
+                                && r[x][y - 1]
+                                && r[x][y + 1];
 
                 mask[x][y] =
-                        g || r;
+                        green || red;
             }
         }
 
-        List<Component> components =
+        List<Component> comps =
                 components(
                         mask,
                         left,
@@ -912,8 +760,11 @@ public final class Analyzer {
         List<Candle> raw =
                 new ArrayList<>();
 
-        for (Component c :
-                components) {
+        // ============================================================
+        // COMPONENT → CANDLE
+        // ============================================================
+
+        for (Component c : comps) {
 
             int cw =
                     c.maxX
@@ -925,74 +776,80 @@ public final class Analyzer {
                             - c.minY
                             + 1;
 
-            /*
-             * Candle width filter.
-             */
-            if (cw < 3) continue;
-
-            if (cw >
-                    Math.max(
+            if (
+                    cw < 3
+                            || cw
+                            > Math.max(
                             42,
-                            w / 8
-                    )) {
+                            w / 9
+                    )
+            ) {
                 continue;
             }
 
-            if (ch < 5) continue;
-
-            if (ch >
-                    Math.round(
+            if (
+                    ch < 5
+                            || ch
+                            > Math.round(
                             mh * 0.55f
-                    )) {
+                    )
+            ) {
                 continue;
             }
 
-            if (c.area < 10) continue;
+            if (c.area < 10) {
+                continue;
+            }
 
             int cx =
-                    Math.round(
-                            c.cx
-                    );
+                    Math.round(c.cx);
 
-            /*
-             * Color dominance.
-             */
-            int greenPixels = 0;
-            int redPixels = 0;
+            int y0 =
+                    c.minY + top;
+
+            int y1 =
+                    c.maxY + top;
+
+            int gc = 0;
+            int rc = 0;
 
             int pad =
                     Math.max(
-                            2,
+                            1,
                             cw / 2
                     );
 
-            for (int x =
-                         Math.max(
-                                 left,
-                                 cx - pad
-                         );
-                 x <=
-                         Math.min(
-                                 right,
-                                 cx + pad
-                         );
-                 x++) {
+            for (
+                    int x =
+                            Math.max(
+                                    left,
+                                    cx - pad
+                            );
 
-                for (int y =
-                             Math.max(
-                                     top,
-                                     c.minY
-                                             + top
-                                             - 3
-                             );
-                     y <=
-                             Math.min(
-                                     bottom,
-                                     c.maxY
-                                             + top
-                                             + 3
-                             );
-                     y++) {
+                    x <=
+                            Math.min(
+                                    right,
+                                    cx + pad
+                            );
+
+                    x++
+            ) {
+
+                for (
+                        int y =
+                                Math.max(
+                                        top,
+                                        y0 - 3
+                                );
+
+                        y <=
+                                Math.min(
+                                        bottom,
+                                        y1 + 3
+                                );
+
+                        y++
+                ) {
 
                     int px =
                             bmp.getPixel(
@@ -1001,73 +858,55 @@ public final class Analyzer {
                             );
 
                     if (isGreen(px)) {
-                        greenPixels++;
+                        gc++;
                     }
 
                     if (isRed(px)) {
-                        redPixels++;
+                        rc++;
                     }
                 }
             }
 
-            if (greenPixels == 0
-                    && redPixels == 0) {
-                continue;
-            }
-
-            Candle candle =
+            Candle cnd =
                     new Candle();
 
-            candle.x =
+            cnd.x =
                     cx;
 
-            candle.green =
-                    greenPixels
-                            >= redPixels;
-
-            int bodyTop =
-                    c.minY
-                            + top;
-
-            int bodyBottom =
-                    c.maxY
-                            + top;
+            cnd.green =
+                    gc >= rc;
 
             /*
-             * Screen Y is inverted relative to price.
+             * Screen Y increases downward.
+             * Price increases upward.
              */
-            if (candle.green) {
+            if (cnd.green) {
 
-                candle.open =
-                        -bodyBottom;
+                cnd.open =
+                        -y1;
 
-                candle.close =
-                        -bodyTop;
+                cnd.close =
+                        -y0;
 
             } else {
 
-                candle.open =
-                        -bodyTop;
+                cnd.open =
+                        -y0;
 
-                candle.close =
-                        -bodyBottom;
+                cnd.close =
+                        -y1;
             }
 
-            /*
-             * Search vertically for the wick using
-             * the same candle color around the body.
-             */
             int wickTop =
-                    bodyTop;
+                    y0;
 
             int wickBottom =
-                    bodyBottom;
+                    y1;
 
             int wx0 =
                     Math.max(
                             left,
-                            cx
-                                    - Math.max(
+                            cx - Math.max(
                                     1,
                                     cw / 3
                             )
@@ -1076,36 +915,39 @@ public final class Analyzer {
             int wx1 =
                     Math.min(
                             right,
-                            cx
-                                    + Math.max(
+                            cx + Math.max(
                                     1,
                                     cw / 3
                             )
                     );
 
-            int search =
-                    Math.max(
-                            8,
-                            Math.round(
-                                    ch * 1.6f
-                            )
-                    );
+            for (
+                    int x = wx0;
+                    x <= wx1;
+                    x++
+            ) {
 
-            for (int x = wx0;
-                 x <= wx1;
-                 x++) {
+                for (
+                        int y =
+                                Math.max(
+                                        top,
+                                        y0
+                                                - Math.round(
+                                                ch * 1.15f
+                                        )
+                                );
 
-                for (int y =
-                             Math.max(
-                                     top,
-                                     bodyTop - search
-                             );
-                     y <=
-                             Math.min(
-                                     bottom,
-                                     bodyBottom + search
-                             );
-                     y++) {
+                        y <=
+                                Math.min(
+                                        bottom,
+                                        y1
+                                                + Math.round(
+                                                ch * 1.15f
+                                        )
+                                );
+
+                        y++
+                ) {
 
                     int px =
                             bmp.getPixel(
@@ -1113,12 +955,17 @@ public final class Analyzer {
                                     y
                             );
 
-                    boolean sameColor =
-                            candle.green
-                                    ? isGreen(px)
-                                    : isRed(px);
-
-                    if (sameColor) {
+                    if (
+                            (
+                                    cnd.green
+                                            && isGreen(px)
+                            )
+                                    ||
+                                    (
+                                            !cnd.green
+                                                    && isRed(px)
+                                    )
+                    ) {
 
                         wickTop =
                                 Math.min(
@@ -1135,21 +982,13 @@ public final class Analyzer {
                 }
             }
 
-            candle.high =
+            cnd.high =
                     -wickTop;
 
-            candle.low =
+            cnd.low =
                     -wickBottom;
 
-            /*
-             * Reject extremely thin line components.
-             */
-            if (candle.range()
-                    < 2.0f) {
-                continue;
-            }
-
-            raw.add(candle);
+            raw.add(cnd);
         }
 
         Collections.sort(
@@ -1162,11 +1001,9 @@ public final class Analyzer {
         return dedupe(raw);
     }
 
-    /*
-     * ===============================================================
-     * CONNECTED COMPONENTS
-     * ===============================================================
-     */
+    // ================================================================
+    // CONNECTED COMPONENTS
+    // ================================================================
 
     private static List<Component> components(
             boolean[][] mask,
@@ -1174,18 +1011,14 @@ public final class Analyzer {
             int right
     ) {
 
-        int width =
+        int w =
                 mask.length;
 
-        int height =
+        int h =
                 mask[0].length;
 
         boolean[][] seen =
-                new boolean[
-                        width
-                ][
-                        height
-                ];
+                new boolean[w][h];
 
         List<Component> result =
                 new ArrayList<>();
@@ -1193,8 +1026,8 @@ public final class Analyzer {
         int[] qx =
                 new int[
                         Math.max(
-                                256,
-                                width * 2
+                                128,
+                                w * 2
                         )
                 ];
 
@@ -1203,35 +1036,47 @@ public final class Analyzer {
                         qx.length
                 ];
 
-        for (int sx = left;
-             sx <= right;
-             sx++) {
+        for (
+                int sx = left;
+                sx <= right;
+                sx++
+        ) {
 
-            for (int sy = 0;
-                 sy < height;
-                 sy++) {
+            for (
+                    int sy = 0;
+                    sy < h;
+                    sy++
+            ) {
 
-                if (!mask[sx][sy]
-                        || seen[sx][sy]) {
+                if (
+                        !mask[sx][sy]
+                                || seen[sx][sy]
+                ) {
                     continue;
                 }
 
                 int head = 0;
                 int tail = 0;
 
-                qx[tail] = sx;
-                qy[tail] = sy;
-                tail++;
+                qx[tail] =
+                        sx;
 
-                seen[sx][sy] = true;
+                qy[tail++] =
+                        sy;
+
+                seen[sx][sy] =
+                        true;
 
                 Component c =
                         new Component();
 
-                c.minX = sx;
-                c.maxX = sx;
-                c.minY = sy;
-                c.maxY = sy;
+                c.minX =
+                        c.maxX =
+                                sx;
+
+                c.minY =
+                        c.maxY =
+                                sy;
 
                 while (head < tail) {
 
@@ -1239,9 +1084,7 @@ public final class Analyzer {
                             qx[head];
 
                     int y =
-                            qy[head];
-
-                    head++;
+                            qy[head++];
 
                     c.area++;
 
@@ -1271,17 +1114,27 @@ public final class Analyzer {
 
                     c.cx += x;
 
-                    int[] dx = {
-                            1, -1, 0, 0
-                    };
+                    int[] dx =
+                            {
+                                    1,
+                                    -1,
+                                    0,
+                                    0
+                            };
 
-                    int[] dy = {
-                            0, 0, 1, -1
-                    };
+                    int[] dy =
+                            {
+                                    0,
+                                    0,
+                                    1,
+                                    -1
+                            };
 
-                    for (int k = 0;
-                         k < 4;
-                         k++) {
+                    for (
+                            int k = 0;
+                            k < 4;
+                            k++
+                    ) {
 
                         int nx =
                                 x + dx[k];
@@ -1289,34 +1142,36 @@ public final class Analyzer {
                         int ny =
                                 y + dy[k];
 
-                        if (nx < left
-                                || nx > right
-                                || ny < 0
-                                || ny >= height
-                                || seen[nx][ny]
-                                || !mask[nx][ny]) {
+                        if (
+                                nx < left
+                                        || nx > right
+                                        || ny < 0
+                                        || ny >= h
+                                        || seen[nx][ny]
+                                        || !mask[nx][ny]
+                        ) {
                             continue;
                         }
 
-                        if (tail >= qx.length) {
+                        if (
+                                tail
+                                        >= qx.length
+                        ) {
 
-                            int newSize =
-                                    qx.length * 2;
+                            int n =
+                                    qx.length
+                                            * 2;
 
-                            int[] newX =
-                                    new int[
-                                            newSize
-                                    ];
+                            int[] ax =
+                                    new int[n];
 
-                            int[] newY =
-                                    new int[
-                                            newSize
-                                    ];
+                            int[] ay =
+                                    new int[n];
 
                             System.arraycopy(
                                     qx,
                                     0,
-                                    newX,
+                                    ax,
                                     0,
                                     qx.length
                             );
@@ -1324,20 +1179,23 @@ public final class Analyzer {
                             System.arraycopy(
                                     qy,
                                     0,
-                                    newY,
+                                    ay,
                                     0,
                                     qy.length
                             );
 
-                            qx = newX;
-                            qy = newY;
+                            qx = ax;
+                            qy = ay;
                         }
 
-                        qx[tail] = nx;
-                        qy[tail] = ny;
-                        tail++;
+                        qx[tail] =
+                                nx;
 
-                        seen[nx][ny] = true;
+                        qy[tail++] =
+                                ny;
+
+                        seen[nx][ny] =
+                                true;
                     }
                 }
 
@@ -1354,249 +1212,245 @@ public final class Analyzer {
         return result;
     }
 
-    /*
-     * ===============================================================
-     * DEDUPE
-     * ===============================================================
-     */
+    // ================================================================
+    // DEDUPE CANDLES
+    // ================================================================
 
     private static List<Candle> dedupe(
-            List<Candle> input
+            List<Candle> in
     ) {
 
-        if (input.size() < 2) {
-            return input;
+        if (in.size() < 2) {
+            return in;
         }
 
-        List<Candle> output =
+        List<Candle> out =
                 new ArrayList<>();
 
         double gap =
-                medianGap(input);
+                medianGap(in);
 
         double minGap =
                 Math.max(
-                        4.0,
-                        gap * 0.42
+                        3.0,
+                        gap * 0.38
                 );
 
-        for (Candle current :
-                input) {
+        for (Candle c : in) {
 
-            if (output.isEmpty()) {
+            if (out.isEmpty()) {
 
-                output.add(current);
+                out.add(c);
                 continue;
             }
 
-            Candle previous =
-                    output.get(
-                            output.size() - 1
+            Candle last =
+                    out.get(
+                            out.size() - 1
                     );
 
-            if (Math.abs(
-                    current.x
-                            - previous.x
-            ) < minGap) {
+            if (
+                    Math.abs(
+                            c.x - last.x
+                    ) < minGap
+            ) {
 
-                /*
-                 * Merge duplicate components.
-                 */
-                if (current.body()
-                        > previous.body()) {
+                if (
+                        c.body()
+                                > last.body()
+                ) {
 
-                    current.high =
+                    c.high =
                             Math.max(
-                                    current.high,
-                                    previous.high
+                                    c.high,
+                                    last.high
                             );
 
-                    current.low =
+                    c.low =
                             Math.min(
-                                    current.low,
-                                    previous.low
+                                    c.low,
+                                    last.low
                             );
 
-                    output.set(
-                            output.size() - 1,
-                            current
+                    out.set(
+                            out.size() - 1,
+                            c
                     );
 
                 } else {
 
-                    previous.high =
+                    last.high =
                             Math.max(
-                                    previous.high,
-                                    current.high
+                                    last.high,
+                                    c.high
                             );
 
-                    previous.low =
+                    last.low =
                             Math.min(
-                                    previous.low,
-                                    current.low
+                                    last.low,
+                                    c.low
                             );
                 }
 
             } else {
 
-                output.add(current);
+                out.add(c);
             }
         }
 
-        return output;
+        return out;
     }
 
+    // ================================================================
+    // MEDIAN GAP
+    // ================================================================
+
     private static double medianGap(
-            List<Candle> candles
+            List<Candle> c
     ) {
 
-        if (candles.size() < 2) {
-            return 1.0;
+        if (c.size() < 2) {
+            return 1;
         }
 
-        List<Float> gaps =
+        List<Float> g =
                 new ArrayList<>();
 
-        for (int i = 1;
-             i < candles.size();
-             i++) {
+        for (
+                int i = 1;
+                i < c.size();
+                i++
+        ) {
 
-            gaps.add(
-                    candles.get(i).x
-                            - candles.get(i - 1).x
+            g.add(
+                    c.get(i).x
+                            - c.get(i - 1).x
             );
         }
 
-        Collections.sort(gaps);
+        Collections.sort(g);
 
-        return gaps.get(
-                gaps.size() / 2
+        return g.get(
+                g.size() / 2
         );
     }
 
-    /*
-     * ===============================================================
-     * QUALITY
-     * ===============================================================
-     */
+    // ================================================================
+    // CHART QUALITY
+    // ================================================================
 
     private static double chartQuality(
-            List<Candle> candles
+            List<Candle> c
     ) {
 
-        if (candles.isEmpty()) {
-            return 0.0;
+        if (c.isEmpty()) {
+            return 0;
         }
 
-        double countFactor =
+        double count =
                 Math.min(
-                        1.0,
-                        candles.size()
-                                / 28.0
+                        1,
+                        c.size() / 32.0
                 );
 
-        double bodyFactor = 0.0;
-        double spacingFactor = 0.0;
+        double body = 0;
+
+        double spacing = 0;
 
         double gap =
-                medianGap(candles);
+                medianGap(c);
 
-        for (int i = 0;
-             i < candles.size();
-             i++) {
+        for (
+                int i = 0;
+                i < c.size();
+                i++
+        ) {
 
-            Candle c =
-                    candles.get(i);
-
-            bodyFactor +=
+            body +=
                     Math.min(
-                            1.0,
-                            c.bodyRatio()
-                                    / 0.55
+                            1,
+                            c.get(i)
+                                    .bodyRatio()
+                                    / 0.62
                     );
 
             if (i > 0) {
 
-                double actualGap =
-                        candles.get(i).x
-                                - candles.get(i - 1).x;
-
-                spacingFactor +=
+                spacing +=
                         1.0
                                 / (
                                 1.0
                                         + Math.abs(
-                                        actualGap
+                                        (
+                                                c.get(i).x
+                                                        - c.get(i - 1).x
+                                        )
                                                 - gap
                                 )
                         );
             }
         }
 
-        bodyFactor /=
-                candles.size();
+        body /=
+                c.size();
 
-        if (candles.size() > 1) {
-
-            spacingFactor /=
-                    candles.size() - 1;
-
-        } else {
-
-            spacingFactor = 0.0;
-        }
+        spacing =
+                c.size() > 1
+                        ? spacing
+                        / (c.size() - 1)
+                        : 0;
 
         return clamp(
-                100.0
+                100
                         * (
-                        0.50 * countFactor
-                                + 0.30 * bodyFactor
-                                + 0.20 * spacingFactor
+                        0.50 * count
+                                + 0.30 * body
+                                + 0.20 * spacing
                 ),
-                0.0,
-                100.0
+                0,
+                100
         );
     }
 
-    /*
-     * ===============================================================
-     * TREND
-     * ===============================================================
-     */
+    // ================================================================
+    // NORMALIZED TREND
+    // ================================================================
 
     private static double slopeNormalized(
-            List<Candle> candles,
+            List<Candle> c,
             int window
     ) {
 
         int n =
                 Math.min(
                         window,
-                        candles.size()
+                        c.size()
                 );
 
         if (n < 2) {
-            return 0.0;
+            return 0;
         }
 
-        double sx = 0.0;
-        double sy = 0.0;
-        double sxx = 0.0;
-        double sxy = 0.0;
+        double sx = 0;
+        double sy = 0;
+        double sxx = 0;
+        double sxy = 0;
 
-        int start =
-                candles.size()
-                        - n;
+        int st =
+                c.size() - n;
 
-        for (int i = 0;
-             i < n;
-             i++) {
+        for (
+                int i = 0;
+                i < n;
+                i++
+        ) {
 
-            double x = i;
+            double x =
+                    i;
 
             double y =
-                    candles.get(
-                            start + i
+                    c.get(
+                            st + i
                     ).close;
 
             sx += x;
@@ -1605,79 +1459,87 @@ public final class Analyzer {
             sxy += x * y;
         }
 
-        double denominator =
+        double den =
                 n * sxx
                         - sx * sx;
 
         double slope =
-                denominator == 0.0
-                        ? 0.0
+                den == 0
+                        ? 0
                         : (
                         n * sxy
                                 - sx * sy
-                ) / denominator;
+                ) / den;
 
-        double averageRange = 0.0;
+        double avgRange = 0;
 
-        for (int i = start;
-             i < candles.size();
-             i++) {
+        for (
+                int i = st;
+                i < c.size();
+                i++
+        ) {
 
-            averageRange +=
-                    candles.get(i).range();
+            avgRange +=
+                    c.get(i).range();
         }
 
-        averageRange /=
+        avgRange /=
                 n;
 
         return clamp(
                 slope
                         / Math.max(
                         0.001,
-                        averageRange
+                        avgRange
                 ),
-                -1.0,
-                1.0
+                -1,
+                1
         );
     }
 
+    // ================================================================
+    // RECENT MOVE
+    // ================================================================
+
     private static double normalizedRecentMove(
-            List<Candle> candles,
+            List<Candle> c,
             int period
     ) {
 
         int p =
                 Math.min(
                         period,
-                        candles.size() - 1
+                        c.size() - 1
                 );
 
         if (p < 1) {
-            return 0.0;
+            return 0;
         }
 
         double now =
-                candles.get(
-                        candles.size() - 1
+                c.get(
+                        c.size() - 1
                 ).close;
 
         double old =
-                candles.get(
-                        candles.size() - 1 - p
+                c.get(
+                        c.size() - 1 - p
                 ).close;
 
-        double averageRange = 0.0;
+        double avg = 0;
 
-        for (int i =
-                     candles.size() - p;
-             i < candles.size();
-             i++) {
+        for (
+                int i =
+                        c.size() - p;
+                i < c.size();
+                i++
+        ) {
 
-            averageRange +=
-                    candles.get(i).range();
+            avg +=
+                    c.get(i).range();
         }
 
-        averageRange /=
+        avg /=
                 p;
 
         return clamp(
@@ -1686,53 +1548,56 @@ public final class Analyzer {
                 )
                         / Math.max(
                         0.001,
-                        averageRange * 2.0
+                        avg * 2.0
                 ),
-                -1.0,
-                1.0
+                -1,
+                1
         );
     }
 
+    // ================================================================
+    // ROC
+    // ================================================================
+
     private static double normalizedRoc(
-            List<Candle> candles,
-            int period
+            List<Candle> c,
+            int p
     ) {
 
-        if (candles.size()
-                <= period) {
-            return 0.0;
+        if (c.size() <= p) {
+            return 0;
         }
 
         double old =
-                candles.get(
-                        candles.size()
-                                - 1
-                                - period
+                c.get(
+                        c.size() - 1 - p
                 ).close;
 
         double now =
-                candles.get(
-                        candles.size() - 1
+                c.get(
+                        c.size() - 1
                 ).close;
 
-        double averageRange = 0.0;
+        double avg = 0;
 
         int n =
                 Math.min(
-                        period + 1,
-                        candles.size()
+                        p + 1,
+                        c.size()
                 );
 
-        for (int i =
-                     candles.size() - n;
-             i < candles.size();
-             i++) {
+        for (
+                int i =
+                        c.size() - n;
+                i < c.size();
+                i++
+        ) {
 
-            averageRange +=
-                    candles.get(i).range();
+            avg +=
+                    c.get(i).range();
         }
 
-        averageRange /=
+        avg /=
                 n;
 
         return clamp(
@@ -1741,60 +1606,57 @@ public final class Analyzer {
                 )
                         / Math.max(
                         0.001,
-                        averageRange * 1.8
+                        avg * 1.8
                 ),
-                -1.0,
-                1.0
+                -1,
+                1
         );
     }
 
-    /*
-     * ===============================================================
-     * RSI
-     * ===============================================================
-     */
+    // ================================================================
+    // RSI
+    // ================================================================
 
     private static double rsi(
-            List<Candle> candles,
+            List<Candle> c,
             int period
     ) {
 
-        if (candles.size()
-                <= period) {
-            return 50.0;
+        if (c.size() <= period) {
+            return 50;
         }
 
-        double gain = 0.0;
-        double loss = 0.0;
+        double gain = 0;
+        double loss = 0;
 
-        int start =
-                candles.size()
-                        - period;
+        int st =
+                c.size() - period;
 
-        for (int i =
-                     start + 1;
-             i < candles.size();
-             i++) {
+        for (
+                int i = st + 1;
+                i < c.size();
+                i++
+        ) {
 
-            double difference =
-                    candles.get(i).close
-                            - candles.get(i - 1).close;
+            double d =
+                    c.get(i).close
+                            - c.get(i - 1).close;
 
-            if (difference > 0) {
+            if (d > 0) {
 
-                gain += difference;
+                gain += d;
 
             } else {
 
-                loss -= difference;
+                loss -= d;
             }
         }
 
-        if (loss == 0.0) {
+        if (loss == 0) {
 
             return gain > 0
-                    ? 100.0
-                    : 50.0;
+                    ? 100
+                    : 50;
         }
 
         double rs =
@@ -1804,379 +1666,403 @@ public final class Analyzer {
                         loss
                 );
 
-        return 100.0
+        return 100
                 - (
-                100.0
+                100
                         / (
-                        1.0 + rs
+                        1 + rs
                 )
         );
     }
 
+    // ================================================================
+    // TREND SCORE
+    // ================================================================
+
     private static double trendScore(
-            List<Candle> candles
+            List<Candle> c
     ) {
 
         return slopeNormalized(
-                candles,
+                c,
                 Math.min(
                         16,
-                        candles.size()
+                        c.size()
                 )
         );
     }
 
+    // ================================================================
+    // MOMENTUM SCORE
+    // ================================================================
+
     private static double momentumScore(
-            List<Candle> candles
+            List<Candle> c
     ) {
 
-        double roc =
+        double a =
                 normalizedRoc(
-                        candles,
+                        c,
                         Math.min(
                                 5,
-                                candles.size() - 1
+                                c.size() - 1
                         )
                 );
 
-        double r =
+        double b =
                 (
                         rsi(
-                                candles,
+                                c,
                                 Math.min(
                                         14,
-                                        candles.size() - 1
+                                        c.size() - 1
                                 )
                         )
-                                - 50.0
+                                - 50
                 ) / 50.0;
 
         return clamp(
-                0.55 * roc
-                        + 0.45 * r,
-                -1.0,
-                1.0
+                0.55 * a
+                        + 0.45 * b,
+                -1,
+                1
         );
     }
 
-    /*
-     * ===============================================================
-     * CANDLE GEOMETRY
-     * ===============================================================
-     */
+    // ================================================================
+    // CANDLE GEOMETRY
+    // ================================================================
 
     private static double candleGeometryScore(
-            List<Candle> candles,
+            List<Candle> c,
             int offset
     ) {
 
-        Candle c =
-                candles.get(
-                        candles.size()
+        Candle x =
+                c.get(
+                        c.size()
                                 - 1
                                 - Math.min(
                                 offset,
-                                candles.size() - 1
+                                c.size() - 1
                         )
                 );
 
-        double value =
-                c.green
+        double v =
+                x.green
                         ? 0.28
                         : -0.28;
 
-        double wickBalance =
+        double wick =
                 (
-                        c.lowerWick()
-                                - c.upperWick()
+                        x.lowerWick()
+                                - x.upperWick()
                 )
-                        / c.range();
+                        / x.range();
 
-        value +=
+        v +=
                 0.38
                         * clamp(
-                        wickBalance,
-                        -1.0,
-                        1.0
+                        wick,
+                        -1,
+                        1
                 );
 
-        if (c.bodyRatio() > 0.68) {
+        if (
+                x.bodyRatio()
+                        > 0.68
+        ) {
 
-            value +=
-                    c.green
+            v +=
+                    x.green
                             ? 0.22
                             : -0.22;
         }
 
-        if (c.bodyRatio() < 0.13) {
+        if (
+                x.bodyRatio()
+                        < 0.13
+        ) {
 
-            value *= 0.25;
+            v *=
+                    0.25;
         }
 
         return clamp(
-                value,
-                -1.0,
-                1.0
+                v,
+                -1,
+                1
         );
     }
 
-    /*
-     * ===============================================================
-     * PATTERN
-     * ===============================================================
-     */
+    // ================================================================
+    // PATTERN SCORE
+    // ================================================================
 
     private static double patternScore(
-            List<Candle> candles
+            List<Candle> c
     ) {
 
-        if (candles.size() < 3) {
-            return 0.0;
+        if (c.size() < 3) {
+            return 0;
         }
 
         Candle a =
-                candles.get(
-                        candles.size() - 3
+                c.get(
+                        c.size() - 3
                 );
 
         Candle b =
-                candles.get(
-                        candles.size() - 2
+                c.get(
+                        c.size() - 2
                 );
 
         Candle x =
-                candles.get(
-                        candles.size() - 1
+                c.get(
+                        c.size() - 1
                 );
 
-        double value = 0.0;
+        double v = 0;
 
-        if (a.green
-                && b.green
-                && x.green) {
+        // Three bullish candles
+        if (
+                a.green
+                        && b.green
+                        && x.green
+        ) {
 
-            value += 0.45;
+            v += 0.45;
         }
 
-        if (!a.green
-                && !b.green
-                && !x.green) {
+        // Three bearish candles
+        if (
+                !a.green
+                        && !b.green
+                        && !x.green
+        ) {
 
-            value -= 0.45;
+            v -= 0.45;
         }
 
-        if (b.green
-                && !x.green
-                && x.body()
-                > b.body() * 1.15) {
+        // Bearish reversal
+        if (
+                b.green
+                        && !x.green
+                        && x.body()
+                        > b.body() * 1.15
+        ) {
 
-            value -= 0.50;
+            v -= 0.50;
         }
 
-        if (!b.green
-                && x.green
-                && x.body()
-                > b.body() * 1.15) {
+        // Bullish reversal
+        if (
+                !b.green
+                        && x.green
+                        && x.body()
+                        > b.body() * 1.15
+        ) {
 
-            value += 0.50;
+            v += 0.50;
         }
 
-        if (x.lowerWick()
-                > x.body() * 1.8
-                && x.bodyRatio() < 0.45) {
+        // Lower wick pressure
+        if (
+                x.lowerWick()
+                        > x.body() * 1.8
+                        && x.bodyRatio()
+                        < 0.45
+        ) {
 
-            value += 0.28;
+            v += 0.28;
         }
 
-        if (x.upperWick()
-                > x.body() * 1.8
-                && x.bodyRatio() < 0.45) {
+        // Upper wick pressure
+        if (
+                x.upperWick()
+                        > x.body() * 1.8
+                        && x.bodyRatio()
+                        < 0.45
+        ) {
 
-            value -= 0.28;
+            v -= 0.28;
         }
 
         return clamp(
-                value,
-                -1.0,
-                1.0
+                v,
+                -1,
+                1
         );
     }
 
-    /*
-     * ===============================================================
-     * LEVEL / VOLATILITY
-     * ===============================================================
-     */
+    // ================================================================
+    // LEVEL / VOLATILITY
+    // ================================================================
 
     private static double levelVolatilityScore(
-            List<Candle> candles,
+            List<Candle> c,
             int period
     ) {
 
         int n =
                 Math.min(
                         period,
-                        candles.size()
+                        c.size()
                 );
 
-        double high =
+        double hi =
                 -Double.MAX_VALUE;
 
-        double low =
+        double lo =
                 Double.MAX_VALUE;
 
-        double averageRange =
-                0.0;
+        double avg = 0;
 
-        for (int i =
-                     candles.size() - n;
-             i < candles.size();
-             i++) {
+        for (
+                int i =
+                        c.size() - n;
+                i < c.size();
+                i++
+        ) {
 
-            Candle c =
-                    candles.get(i);
-
-            high =
+            hi =
                     Math.max(
-                            high,
-                            c.high
+                            hi,
+                            c.get(i).high
                     );
 
-            low =
+            lo =
                     Math.min(
-                            low,
-                            c.low
+                            lo,
+                            c.get(i).low
                     );
 
-            averageRange +=
-                    c.range();
+            avg +=
+                    c.get(i).range();
         }
 
-        averageRange /=
+        avg /=
                 n;
 
-        double totalRange =
+        double range =
                 Math.max(
                         0.001,
-                        high - low
+                        hi - lo
                 );
 
-        Candle last =
-                candles.get(
-                        candles.size() - 1
+        Candle x =
+                c.get(
+                        c.size() - 1
                 );
 
-        double position =
+        double pos =
                 clamp(
                         (
-                                last.close
-                                        - low
+                                x.close - lo
                         )
-                                / totalRange,
-                        0.0,
-                        1.0
+                                / range,
+                        0,
+                        1
                 );
 
-        double value = 0.0;
+        double v = 0;
 
         /*
-         * Lower-range support.
+         * Lower range can support upward pressure.
          */
-        if (position < 0.22) {
+        if (pos < 0.22) {
 
-            value += 0.16;
+            v += 0.16;
+
+        } else if (pos > 0.78) {
+
+            /*
+             * Upper range can produce downward pressure.
+             */
+            v -= 0.16;
         }
 
         /*
-         * Upper-range resistance.
+         * Large candle/range.
          */
-        else if (position > 0.78) {
+        if (
+                x.range()
+                        > avg * 1.35
+        ) {
 
-            value -= 0.16;
-        }
-
-        /*
-         * Strong candle continuation.
-         */
-        if (last.range()
-                > averageRange * 1.35) {
-
-            value +=
-                    last.green
+            v +=
+                    x.green
                             ? 0.16
                             : -0.16;
         }
 
         /*
-         * Breakout check.
+         * Breakout direction based on normalized
+         * distance from the prior range.
          */
         if (n >= 4) {
 
-            double previousHigh =
+            double prevHi =
                     -Double.MAX_VALUE;
 
-            double previousLow =
+            double prevLo =
                     Double.MAX_VALUE;
 
-            for (int i =
-                         candles.size() - n;
-                 i < candles.size() - 1;
-                 i++) {
+            for (
+                    int i =
+                            c.size() - n;
+                    i < c.size() - 1;
+                    i++
+            ) {
 
-                Candle c =
-                        candles.get(i);
-
-                previousHigh =
+                prevHi =
                         Math.max(
-                                previousHigh,
-                                c.high
+                                prevHi,
+                                c.get(i).high
                         );
 
-                previousLow =
+                prevLo =
                         Math.min(
-                                previousLow,
-                                c.low
+                                prevLo,
+                                c.get(i).low
                         );
             }
 
-            if (last.close
-                    > previousHigh) {
+            double close =
+                    x.close;
 
-                value += 0.22;
+            if (close > prevHi) {
 
-            } else if (
-                    last.close
-                            < previousLow
-            ) {
+                v += 0.22;
 
-                value -= 0.22;
+            } else if (close < prevLo) {
+
+                v -= 0.22;
             }
         }
 
         return clamp(
-                value,
-                -1.0,
-                1.0
+                v,
+                -1,
+                1
         );
     }
 
-    /*
-     * ===============================================================
-     * NEXT CANDLE ESTIMATE
-     * ===============================================================
-     */
+    // ================================================================
+    // NEXT CANDLE PREDICTION
+    // ================================================================
 
     private static void fillPrediction(
             Result out,
-            List<Candle> candles,
+            List<Candle> c,
             double signed,
             double trend,
             double momentum
     ) {
 
         Candle last =
-                candles.get(
-                        candles.size() - 1
+                c.get(
+                        c.size() - 1
                 );
 
         double direction =
@@ -2193,35 +2079,37 @@ public final class Analyzer {
         double trendAbs =
                 Math.abs(trend);
 
-        double momentumAbs =
+        double momAbs =
                 Math.abs(momentum);
 
-        double averageRange = 0.0;
+        double avgRange = 0;
 
         int n =
                 Math.min(
                         12,
-                        candles.size()
+                        c.size()
                 );
 
-        for (int i =
-                     candles.size() - n;
-             i < candles.size();
-             i++) {
+        for (
+                int i =
+                        c.size() - n;
+                i < c.size();
+                i++
+        ) {
 
-            averageRange +=
-                    candles.get(i).range();
+            avgRange +=
+                    c.get(i).range();
         }
 
-        averageRange /=
+        avgRange /=
                 n;
 
-        double relativeRange =
+        double relative =
                 clamp(
                         last.range()
                                 / Math.max(
                                 0.001,
-                                averageRange
+                                avgRange
                         ),
                         0.55,
                         1.55
@@ -2230,12 +2118,11 @@ public final class Analyzer {
         double rangeRatio =
                 clamp(
                         0.70
-                                + 0.28
-                                * relativeRange
+                                + 0.28 * relative
                                 + 0.20
                                 * (
                                 trendAbs
-                                        + momentumAbs
+                                        + momAbs
                         ),
                         0.60,
                         1.55
@@ -2248,7 +2135,7 @@ public final class Analyzer {
                 clamp(
                         0.24 * recentBody
                                 + 0.30 * trendAbs
-                                + 0.26 * momentumAbs
+                                + 0.26 * momAbs
                                 + 0.20
                                 * Math.abs(signed),
                         0.10,
@@ -2256,7 +2143,7 @@ public final class Analyzer {
                 );
 
         out.nextBodyRatio =
-                body * 100.0;
+                body * 100;
 
         if (rangeRatio < 0.86) {
 
@@ -2275,16 +2162,16 @@ public final class Analyzer {
         }
 
         double wick =
-                1.0 - body;
+                1 - body;
 
         out.nextUpperWickRatio =
                 clamp(
                         (
                                 wick * 0.42
                                         + 0.04
-                        ) * 100.0,
-                        4.0,
-                        32.0
+                        ) * 100,
+                        4,
+                        32
                 );
 
         out.nextLowerWickRatio =
@@ -2292,97 +2179,93 @@ public final class Analyzer {
                         (
                                 wick * 0.46
                                         + 0.04
-                        ) * 100.0,
-                        4.0,
-                        32.0
+                        ) * 100,
+                        4,
+                        32
                 );
     }
 
-    /*
-     * ===============================================================
-     * COLOR DETECTION
-     * ===============================================================
-     */
+    // ================================================================
+    // GREEN DETECTION
+    // ================================================================
 
     private static boolean isGreen(
-            int color
+            int c
     ) {
 
         int r =
-                Color.red(color);
+                Color.red(c);
 
         int g =
-                Color.green(color);
+                Color.green(c);
 
         int b =
-                Color.blue(color);
+                Color.blue(c);
 
-        return g >= 105
-                && g > r * 1.12f
-                && g > b * 1.02f
-                && g - r >= 14;
+        return
+                g >= 115
+                        && g > r * 1.16f
+                        && g > b * 1.03f
+                        && g - r >= 18;
     }
+
+    // ================================================================
+    // RED DETECTION
+    // ================================================================
 
     private static boolean isRed(
-            int color
+            int c
     ) {
 
         int r =
-                Color.red(color);
+                Color.red(c);
 
         int g =
-                Color.green(color);
+                Color.green(c);
 
         int b =
-                Color.blue(color);
+                Color.blue(c);
 
-        return r >= 120
-                && r > g * 1.15f
-                && r > b * 1.05f
-                && r - g >= 20;
+        return
+                r >= 125
+                        && r > g * 1.20f
+                        && r > b * 1.08f
+                        && r - g >= 24;
     }
 
+    // ================================================================
+    // PERCENT FORMAT
+    // ================================================================
+
     private static String percent(
-            double value
+            double x
     ) {
 
         return String.format(
-                Locale.US,
+                java.util.Locale.US,
                 "%.0f%%",
                 Math.min(
-                        100.0,
-                        Math.abs(value)
-                                * 100.0
+                        100,
+                        Math.abs(x) * 100
                 )
         );
     }
+
+    // ================================================================
+    // CLAMP
+    // ================================================================
 
     private static double clamp(
-            double value,
-            double min,
-            double max
+            double x,
+            double a,
+            double b
     ) {
 
         return Math.max(
-                min,
+                a,
                 Math.min(
-                        max,
-                        value
-                )
-        );
-    }
-
-    private static float clampFloat(
-            float value,
-            float min,
-            float max
-    ) {
-
-        return Math.max(
-                min,
-                Math.min(
-                        max,
-                        value
+                        b,
+                        x
                 )
         );
     }
