@@ -240,16 +240,11 @@ public class FloatingScannerService extends Service {
                         // ------------------------------------------------
                         // MARKET-ONLY GATE
                         // ------------------------------------------------
-                        // Never show UP/DOWN when the visible screen does
-                        // not contain a confirmed market-chart structure.
                         if (!marketChart || candles < 12) {
 
                             continuous = false;
-
                             stopLoopOnly();
-
                             scanBusy = false;
-
                             hideScanOverlay();
 
                             lastStrongSignal = "";
@@ -267,7 +262,7 @@ public class FloatingScannerService extends Service {
                         }
 
                         if (signal == null) {
-                            return;
+                            signal = "NONE";
                         }
 
                         signal =
@@ -276,21 +271,16 @@ public class FloatingScannerService extends Service {
                                                 Locale.US
                                         );
 
-                        if (
-                                !signal.equals("UP")
-                                        && !signal.equals("DOWN")
-                        ) {
-
-                            return;
-                        }
-
                         // ------------------------------------------------
                         // STRONG RESULT
                         // ------------------------------------------------
-
                         if (
                                 analyzerStrong
                                         && score >= MIN_SIGNAL_SCORE
+                                        && (
+                                                signal.equals("UP")
+                                                        || signal.equals("DOWN")
+                                        )
                         ) {
 
                             if (
@@ -298,26 +288,19 @@ public class FloatingScannerService extends Service {
                                             lastStrongSignal
                                     )
                             ) {
-
                                 sameStrongCount++;
-
                             } else {
-
-                                lastStrongSignal =
-                                        signal;
-
+                                lastStrongSignal = signal;
                                 sameStrongCount = 1;
                             }
 
                             /*
-                             * Final result requires:
-                             *
-                             * 3 completed scans minimum
-                             * + 2 same-direction strong confirmations
+                             * Final result:
+                             * minimum 3 completed scans
+                             * and 2 same-direction confirmations.
                              */
                             if (
-                                    scanCount
-                                            >= MIN_SCANS_BEFORE_SIGNAL
+                                    scanCount >= MIN_SCANS_BEFORE_SIGNAL
                                             && sameStrongCount
                                             >= SAME_DIRECTION_CONFIRMATIONS
                                             && System.currentTimeMillis()
@@ -334,7 +317,6 @@ public class FloatingScannerService extends Service {
                                 );
 
                                 continuous = false;
-
                                 stopLoopOnly();
 
                                 Toast.makeText(
@@ -355,19 +337,46 @@ public class FloatingScannerService extends Service {
                         }
 
                         // ------------------------------------------------
-                        // MAX 5 SCANS
+                        // NOT FINAL YET
                         // ------------------------------------------------
-
                         if (
                                 scanCount >= MAX_SCANS
-                                        && continuous
                         ) {
 
                             continuous = false;
-
                             stopLoopOnly();
-
                             hideBadge();
+
+                            Toast.makeText(
+                                    FloatingScannerService.this,
+                                    "NO STRONG SIGNAL â€¢ 5 SCANS COMPLETED",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            return;
+                        }
+
+                        /*
+                         * IMPORTANT:
+                         * Do not start the next scan on a timer independently.
+                         * Wait for the current result, then schedule the next one.
+                         */
+                        if (continuous) {
+                            handler.postDelayed(
+                                    new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            if (
+                                                    continuous
+                                                            && !scanBusy
+                                                            && scanCount < MAX_SCANS
+                                            ) {
+                                                requestOneScan();
+                                            }
+                                        }
+                                    },
+                                    SCAN_INTERVAL_MS
+                            );
                         }
 
                         return;
@@ -524,59 +533,13 @@ public class FloatingScannerService extends Service {
             );
         }
 
-        loop =
-                new Runnable() {
-
-                    @Override
-                    public void run() {
-
-                        if (
-                                !continuous
-                                        || !running
-                        ) {
-
-                            return;
-                        }
-
-                        if (
-                                scanCount
-                                        >= MAX_SCANS
-                        ) {
-
-                            continuous = false;
-
-                            stopLoopOnly();
-
-                            hideBadge();
-
-                            return;
-                        }
-
-                        requestOneScan();
-
-                        if (
-                                continuous
-                                        && scanCount
-                                        < MAX_SCANS
-                        ) {
-
-                            handler.postDelayed(
-                                    this,
-                                    SCAN_INTERVAL_MS
-                            );
-                        }
-                    }
-                };
-
-        // First scan immediately
+        /*
+         * Result-driven scan sequence:
+         * the first scan starts immediately; each later scan starts
+         * only after the previous scan has returned its result.
+         */
+        loop = null;
         requestOneScan();
-
-        // Next scans after interval
-        handler.postDelayed(
-                loop,
-                SCAN_INTERVAL_MS
-        );
-    }
 
     // ============================================================
     // ONE SCAN
@@ -1703,4 +1666,5 @@ public class FloatingScannerService extends Service {
             super.onDetachedFromWindow();
         }
     }
+}
 }
