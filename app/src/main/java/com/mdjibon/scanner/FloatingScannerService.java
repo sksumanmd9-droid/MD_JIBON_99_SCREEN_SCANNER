@@ -22,8 +22,8 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,49 +31,125 @@ import java.util.Locale;
 
 public class FloatingScannerService extends Service {
 
-    public static final String ACTION_SCAN =
-            "com.mdjibon.scanner.ACTION_FLOATING_SCAN";
+    // ============================================================
+    // ACTION
+    // ============================================================
 
     public static final String ACTION_START_CONTINUOUS =
             "com.mdjibon.scanner.ACTION_START_CONTINUOUS";
 
-    public static final String ACTION_AUTO_SCAN =
-            "com.mdjibon.scanner.ACTION_AUTO_SCAN";
+    // ============================================================
+    // SCAN SETTINGS
+    // ============================================================
 
-    public static final String ACTION_AUTO_SCAN_NOW =
-            "com.mdjibon.scanner.ACTION_AUTO_SCAN_NOW";
+    private static final int MIN_SCANS_BEFORE_SIGNAL = 3;
+    private static final int MAX_SCANS = 5;
 
     private static final float MIN_SIGNAL_SCORE = 90.0f;
 
-    private static final long RESULT_HIDE_DELAY =
-            12000L;
+    private static final int SAME_DIRECTION_CONFIRMATIONS = 2;
 
-    private static volatile boolean running =
-            false;
+    private static final long SIGNAL_COOLDOWN_MS = 2500L;
+    private static final long SCAN_INTERVAL_MS = 2600L;
+    private static final long OVERLAY_MS = 1450L;
 
-    private WindowManager windowManager;
+    // ============================================================
+    // RUNNING
+    // ============================================================
 
-    private LinearLayout bubble;
+    private static volatile boolean running = false;
 
-    private ImageView iconView;
+    // ============================================================
+    // FLOATING UI
+    // ============================================================
 
-    private TextView resultBadge;
+    private WindowManager wm;
 
-    private WindowManager.LayoutParams bubbleParams;
+    /*
+     * Root floating container.
+     *
+     * IMPORTANT:
+     * Drag is handled by this root view.
+     * The ImageView does NOT have its own click listener.
+     * This prevents the icon from stealing the drag events.
+     */
+    private FrameLayout bubble;
+
+    private ImageView icon;
+
+    private TextView badge;
+
+    private WindowManager.LayoutParams params;
+
+    // ============================================================
+    // HANDLER / SCAN STATE
+    // ============================================================
 
     private Handler handler;
 
     private View scanOverlay;
 
-    private boolean scanning =
-            false;
+    private Runnable loop;
 
-    private long lastTapTime =
-            0L;
+    private boolean continuous = false;
+
+    private boolean scanBusy = false;
+
+    private int scanCount = 0;
+
+    private String lastStrongSignal = "";
+
+    private int sameStrongCount = 0;
+
+    private long lastAnnouncedAt = 0L;
+
+    // ============================================================
+    // DRAG STATE
+    // ============================================================
+
+    private float touchStartRawX;
+
+    private float touchStartRawY;
+
+    private int touchStartParamX;
+
+    private int touchStartParamY;
+
+    private long touchDownTime;
+
+    private boolean touchMoved = false;
+
+    // ============================================================
+    // DIMENSIONS
+    // ============================================================
+
+    private int iconSize() {
+        return dp(68);
+    }
+
+    private int normalBubbleWidth() {
+        return dp(70);
+    }
+
+    private int resultBubbleWidth() {
+        return dp(190);
+    }
+
+    private int bubbleHeight() {
+        return dp(72);
+    }
+
+    // ============================================================
+    // RUNNING STATE
+    // ============================================================
 
     public static boolean isRunning() {
         return running;
     }
+
+    // ============================================================
+    // BROADCAST RECEIVER
+    // ============================================================
 
     private final BroadcastReceiver receiver =
             new BroadcastReceiver() {
@@ -91,6 +167,10 @@ public class FloatingScannerService extends Service {
                     String action =
                             intent.getAction();
 
+                    // ------------------------------------------------
+                    // SCAN STATUS
+                    // ------------------------------------------------
+
                     if (
                             ScreenCaptureService.ACTION_SCAN_STATUS
                                     .equals(action)
@@ -101,25 +181,23 @@ public class FloatingScannerService extends Service {
                                         "state"
                                 );
 
-                        if (
-                                "working".equals(
-                                        state
-                                )
-                        ) {
+                        if ("working".equals(state)) {
 
                             showScanOverlay();
 
-                        } else if (
-                                "done".equals(
-                                        state
-                                )
-                        ) {
+                        } else if ("done".equals(state)) {
 
                             hideScanOverlay();
+
+                            scanBusy = false;
                         }
 
                         return;
                     }
+
+                    // ------------------------------------------------
+                    // RESULT
+                    // ------------------------------------------------
 
                     if (
                             ScreenCaptureService.ACTION_RESULT
@@ -128,20 +206,7 @@ public class FloatingScannerService extends Service {
 
                         hideScanOverlay();
 
-                        scanning =
-                                false;
-
-                        boolean strong =
-                                intent.getBooleanExtra(
-                                        "strong",
-                                        false
-                                );
-
-                        boolean chartDetected =
-                                intent.getBooleanExtra(
-                                        "chartDetected",
-                                        false
-                                );
+                        scanBusy = false;
 
                         String signal =
                                 intent.getStringExtra(
@@ -151,76 +216,182 @@ public class FloatingScannerService extends Service {
                         float score =
                                 intent.getFloatExtra(
                                         "score",
-                                        0.0f
+                                        0f
                                 );
 
-                        if (
-                                strong
-                                        && chartDetected
-                                        && score >= MIN_SIGNAL_SCORE
-                                        && (
-                                        "UP".equals(
-                                                signal
-                                        )
-                                                || "DOWN".equals(
-                                                signal
-                                        )
-                                )
-                        ) {
+                        boolean analyzerStrong =
+                                intent.getBooleanExtra(
+                                        "strong",
+                                        false
+                                );
 
-                            showFinalResult(
-                                    signal,
-                                    score
-                            );
+                        boolean marketChart =
+                                intent.getBooleanExtra(
+                                        "marketChart",
+                                        false
+                                );
 
-                        } else {
+                        int candles =
+                                intent.getIntExtra(
+                                        "candles",
+                                        0
+                                );
 
-                            /*
-                             * No weak UP/DOWN.
-                             */
-                            hideFinalResult();
+                        // ------------------------------------------------
+                        // MARKET-ONLY GATE
+                        // ------------------------------------------------
+                        // Never show UP/DOWN when the visible screen does
+                        // not contain a confirmed market-chart structure.
+                        if (!marketChart || candles < 12) {
+
+                            continuous = false;
+
+                            stopLoopOnly();
+
+                            scanBusy = false;
+
+                            hideScanOverlay();
+
+                            lastStrongSignal = "";
+                            sameStrongCount = 0;
+
+                            hideBadge();
 
                             Toast.makeText(
                                     FloatingScannerService.this,
-                                    "NO STRONG SIGNAL",
+                                    "MARKET CHART NOT DETECTED",
                                     Toast.LENGTH_SHORT
                             ).show();
+
+                            return;
+                        }
+
+                        if (signal == null) {
+                            return;
+                        }
+
+                        signal =
+                                signal.trim()
+                                        .toUpperCase(
+                                                Locale.US
+                                        );
+
+                        if (
+                                !signal.equals("UP")
+                                        && !signal.equals("DOWN")
+                        ) {
+
+                            return;
+                        }
+
+                        // ------------------------------------------------
+                        // STRONG RESULT
+                        // ------------------------------------------------
+
+                        if (
+                                analyzerStrong
+                                        && score >= MIN_SIGNAL_SCORE
+                        ) {
+
+                            if (
+                                    signal.equals(
+                                            lastStrongSignal
+                                    )
+                            ) {
+
+                                sameStrongCount++;
+
+                            } else {
+
+                                lastStrongSignal =
+                                        signal;
+
+                                sameStrongCount = 1;
+                            }
+
+                            /*
+                             * Final result requires:
+                             *
+                             * 3 completed scans minimum
+                             * + 2 same-direction strong confirmations
+                             */
+                            if (
+                                    scanCount
+                                            >= MIN_SCANS_BEFORE_SIGNAL
+                                            && sameStrongCount
+                                            >= SAME_DIRECTION_CONFIRMATIONS
+                                            && System.currentTimeMillis()
+                                            - lastAnnouncedAt
+                                            >= SIGNAL_COOLDOWN_MS
+                            ) {
+
+                                lastAnnouncedAt =
+                                        System.currentTimeMillis();
+
+                                showBadge(
+                                        signal,
+                                        score
+                                );
+
+                                continuous = false;
+
+                                stopLoopOnly();
+
+                                Toast.makeText(
+                                        FloatingScannerService.this,
+                                        signal
+                                                + "  "
+                                                + String.format(
+                                                Locale.US,
+                                                "%.0f%%",
+                                                score
+                                        )
+                                                + " â€¢ SCAN STOPPED",
+                                        Toast.LENGTH_LONG
+                                ).show();
+
+                                return;
+                            }
+                        }
+
+                        // ------------------------------------------------
+                        // MAX 5 SCANS
+                        // ------------------------------------------------
+
+                        if (
+                                scanCount >= MAX_SCANS
+                                        && continuous
+                        ) {
+
+                            continuous = false;
+
+                            stopLoopOnly();
+
+                            hideBadge();
                         }
 
                         return;
                     }
+
+                    // ------------------------------------------------
+                    // ERROR
+                    // ------------------------------------------------
 
                     if (
                             ScreenCaptureService.ACTION_ERROR
                                     .equals(action)
                     ) {
 
+                        scanBusy = false;
+
                         hideScanOverlay();
-
-                        scanning =
-                                false;
-
-                        String message =
-                                intent.getStringExtra(
-                                        "message"
-                                );
-
-                        if (
-                                message == null
-                                        || message.trim().isEmpty()
-                        ) {
-                            message =
-                                    "Market screen is not ready.";
-                        }
-
-                        Toast.makeText(
-                                FloatingScannerService.this,
-                                message,
-                                Toast.LENGTH_SHORT
-                        ).show();
                     }
                 }
             };
+
+    // ============================================================
+    // SERVICE CREATE
+    // ============================================================
 
     @Override
     public void onCreate() {
@@ -265,17 +436,19 @@ public class FloatingScannerService extends Service {
             );
         }
 
-        running =
-                true;
-
         if (
-                Settings.canDrawOverlays(
-                        this
-                )
+                Settings.canDrawOverlays(this)
         ) {
+
             createBubble();
         }
+
+        running = true;
     }
+
+    // ============================================================
+    // START COMMAND
+    // ============================================================
 
     @Override
     public int onStartCommand(
@@ -286,47 +459,32 @@ public class FloatingScannerService extends Service {
 
         if (
                 bubble == null
-                        && Settings.canDrawOverlays(
-                        this
-                )
+                        && Settings.canDrawOverlays(this)
         ) {
+
             createBubble();
         }
 
         if (
                 intent != null
-                        && (
-                        ACTION_SCAN.equals(
+                        && ACTION_START_CONTINUOUS
+                        .equals(
                                 intent.getAction()
                         )
-                                || ACTION_START_CONTINUOUS.equals(
-                                intent.getAction()
-                        )
-                                || ACTION_AUTO_SCAN_NOW.equals(
-                                intent.getAction()
-                        )
-                )
         ) {
 
-            startScan();
+            startContinuous();
         }
 
         return START_STICKY;
     }
 
     // ============================================================
-    // SCAN
+    // START CONTINUOUS
     // ============================================================
 
-    private void startScan() {
+    private void startContinuous() {
 
-        if (scanning) {
-            return;
-        }
-
-        /*
-         * Screen capture must be active.
-         */
         if (
                 !ScreenCaptureService
                         .isCaptureActive()
@@ -334,217 +492,415 @@ public class FloatingScannerService extends Service {
 
             Toast.makeText(
                     this,
-                    "OPEN MARKET CHART FIRST",
+                    "Start screen capture first.",
                     Toast.LENGTH_SHORT
             ).show();
 
             return;
         }
 
-        scanning =
-                true;
+        if (continuous) {
+            return;
+        }
 
-        hideFinalResult();
+        continuous = true;
 
-        showScanOverlay();
+        scanBusy = false;
 
-        Intent scanIntent =
+        scanCount = 0;
+
+        lastStrongSignal = "";
+
+        sameStrongCount = 0;
+
+        lastAnnouncedAt = 0L;
+
+        hideBadge();
+
+        if (loop != null) {
+
+            handler.removeCallbacks(
+                    loop
+            );
+        }
+
+        loop =
+                new Runnable() {
+
+                    @Override
+                    public void run() {
+
+                        if (
+                                !continuous
+                                        || !running
+                        ) {
+
+                            return;
+                        }
+
+                        if (
+                                scanCount
+                                        >= MAX_SCANS
+                        ) {
+
+                            continuous = false;
+
+                            stopLoopOnly();
+
+                            hideBadge();
+
+                            return;
+                        }
+
+                        requestOneScan();
+
+                        if (
+                                continuous
+                                        && scanCount
+                                        < MAX_SCANS
+                        ) {
+
+                            handler.postDelayed(
+                                    this,
+                                    SCAN_INTERVAL_MS
+                            );
+                        }
+                    }
+                };
+
+        // First scan immediately
+        requestOneScan();
+
+        // Next scans after interval
+        handler.postDelayed(
+                loop,
+                SCAN_INTERVAL_MS
+        );
+    }
+
+    // ============================================================
+    // ONE SCAN
+    // ============================================================
+
+    private void requestOneScan() {
+
+        if (
+                !continuous
+                        || scanBusy
+                        || !ScreenCaptureService
+                        .isCaptureActive()
+        ) {
+
+            return;
+        }
+
+        if (scanCount >= MAX_SCANS) {
+
+            continuous = false;
+
+            stopLoopOnly();
+
+            hideBadge();
+
+            return;
+        }
+
+        scanBusy = true;
+
+        scanCount++;
+
+        // Never show old result during new scan
+        hideBadge();
+
+        Intent intent =
                 new Intent(
                         this,
                         ScreenCaptureService.class
                 );
 
-        scanIntent.setAction(
+        intent.setAction(
                 ScreenCaptureService.ACTION_SCAN
         );
 
-        if (bubbleParams != null) {
+        // --------------------------------------------------------
+        // EXCLUDE FLOATING ICON FROM SCREEN ANALYSIS
+        // --------------------------------------------------------
 
-            scanIntent.putExtra(
+        if (params != null) {
+
+            intent.putExtra(
                     "excludeX",
-                    bubbleParams.x
+                    params.x
             );
 
-            scanIntent.putExtra(
+            intent.putExtra(
                     "excludeY",
-                    bubbleParams.y
+                    params.y
             );
 
-            scanIntent.putExtra(
+            intent.putExtra(
                     "excludeW",
-                    bubbleParams.width
+                    params.width
             );
 
-            scanIntent.putExtra(
+            intent.putExtra(
                     "excludeH",
-                    bubbleParams.height
+                    params.height
             );
         }
 
-        if (Build.VERSION.SDK_INT >= 26) {
+        // --------------------------------------------------------
+        // START SCREEN SCAN
+        // --------------------------------------------------------
 
-            startForegroundService(
-                    scanIntent
-            );
+        try {
 
-        } else {
+            if (Build.VERSION.SDK_INT >= 26) {
 
-            startService(
-                    scanIntent
-            );
+                startForegroundService(
+                        intent
+                );
+
+            } else {
+
+                startService(
+                        intent
+                );
+            }
+
+        } catch (Exception e) {
+
+            scanBusy = false;
+
+            hideScanOverlay();
+
+            Toast.makeText(
+                    this,
+                    "Unable to start screen scan.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
         }
+
+        showScanOverlay();
+
+        handler.postDelayed(
+                this::hideScanOverlay,
+                OVERLAY_MS
+        );
     }
 
     // ============================================================
-    // BUBBLE
+    // STOP LOOP
+    // ============================================================
+
+    private void stopLoopOnly() {
+
+        continuous = false;
+
+        scanBusy = false;
+
+        if (loop != null) {
+
+            handler.removeCallbacks(
+                    loop
+            );
+
+            loop = null;
+        }
+
+        hideScanOverlay();
+    }
+
+    // ============================================================
+    // STOP EVERYTHING
+    // ============================================================
+
+    private void stopEverything() {
+
+        stopLoopOnly();
+
+        hideBadge();
+    }
+
+    // ============================================================
+    // CREATE FLOATING ICON
     // ============================================================
 
     private void createBubble() {
 
         if (
                 bubble != null
-                        || !Settings.canDrawOverlays(
-                        this
-                )
+                        || !Settings.canDrawOverlays(this)
         ) {
+
             return;
         }
 
-        windowManager =
+        wm =
                 (WindowManager)
                         getSystemService(
                                 WINDOW_SERVICE
                         );
 
+        // --------------------------------------------------------
+        // ROOT CONTAINER
+        // --------------------------------------------------------
+
         bubble =
-                new LinearLayout(this);
+                new FrameLayout(this);
 
-        bubble.setOrientation(
-                LinearLayout.VERTICAL
-        );
+        bubble.setClipChildren(false);
 
-        bubble.setGravity(
-                Gravity.CENTER
-        );
+        bubble.setClipToPadding(false);
 
         // --------------------------------------------------------
         // ICON
         // --------------------------------------------------------
 
-        iconView =
+        icon =
                 new ImageView(this);
 
-        try {
+        icon.setImageResource(
+                R.drawable.md_jibon_logo
+        );
 
-            iconView.setImageResource(
-                    R.drawable.md_jibon_logo
-            );
-
-        } catch (Exception ignored) {
-
-            iconView.setImageDrawable(null);
-
-            GradientDrawable fallback =
-                    new GradientDrawable();
-
-            fallback.setShape(
-                    GradientDrawable.OVAL
-            );
-
-            fallback.setColor(
-                    Color.rgb(
-                            5,
-                            20,
-                            30
-                    )
-            );
-
-            fallback.setStroke(
-                    dp(2),
-                    Color.rgb(
-                            60,
-                            240,
-                            165
-                    )
-            );
-
-            iconView.setBackground(
-                    fallback
-            );
-        }
-
-        iconView.setScaleType(
+        icon.setScaleType(
                 ImageView.ScaleType.CENTER_CROP
         );
 
+        icon.setBackgroundColor(
+                Color.TRANSPARENT
+        );
+
+        FrameLayout.LayoutParams iconParams =
+                new FrameLayout.LayoutParams(
+                        iconSize(),
+                        iconSize()
+                );
+
+        iconParams.leftMargin = 0;
+        iconParams.topMargin = 0;
+
         bubble.addView(
-                iconView,
-                new LinearLayout.LayoutParams(
-                        dp(64),
-                        dp(64)
-                )
+                icon,
+                iconParams
         );
 
         // --------------------------------------------------------
         // RESULT BADGE
         // --------------------------------------------------------
 
-        resultBadge =
+        badge =
                 new TextView(this);
 
-        resultBadge.setGravity(
+        badge.setGravity(
                 Gravity.CENTER
         );
 
-        resultBadge.setTextSize(
+        badge.setTextSize(
                 10
         );
 
-        resultBadge.setTextColor(
+        badge.setTextColor(
                 Color.WHITE
         );
 
-        resultBadge.setVisibility(
-                View.GONE
+        badge.setSingleLine(
+                true
         );
 
-        LinearLayout.LayoutParams badgeParams =
-                new LinearLayout.LayoutParams(
-                        dp(100),
-                        dp(30)
+        badge.setPadding(
+                dp(8),
+                0,
+                dp(8),
+                0
+        );
+
+        GradientDrawable defaultBadge =
+                new GradientDrawable();
+
+        defaultBadge.setColor(
+                Color.rgb(
+                        8,
+                        20,
+                        31
+                )
+        );
+
+        defaultBadge.setStroke(
+                dp(1),
+                Color.rgb(
+                        55,
+                        170,
+                        235
+                )
+        );
+
+        defaultBadge.setCornerRadius(
+                dp(8)
+        );
+
+        badge.setBackground(
+                defaultBadge
+        );
+
+        FrameLayout.LayoutParams badgeParams =
+                new FrameLayout.LayoutParams(
+                        dp(112),
+                        dp(48)
                 );
 
+        /*
+         * Result is shown immediately to the right
+         * of the floating icon.
+         */
+        badgeParams.leftMargin =
+                dp(73);
+
         badgeParams.topMargin =
-                dp(3);
+                dp(10);
 
         bubble.addView(
-                resultBadge,
+                badge,
                 badgeParams
         );
 
+        badge.setVisibility(
+                View.GONE
+        );
+
         // --------------------------------------------------------
-        // WINDOW
+        // WINDOW PARAMETERS
         // --------------------------------------------------------
 
-        bubbleParams =
+        params =
                 new WindowManager.LayoutParams(
-                        dp(105),
-                        dp(98),
+                        normalBubbleWidth(),
+                        bubbleHeight(),
+
                         Build.VERSION.SDK_INT >= 26
                                 ? WindowManager.LayoutParams
                                 .TYPE_APPLICATION_OVERLAY
                                 : WindowManager.LayoutParams
                                 .TYPE_PHONE,
+
                         WindowManager.LayoutParams
                                 .FLAG_NOT_FOCUSABLE
                                 | WindowManager.LayoutParams
                                 .FLAG_LAYOUT_NO_LIMITS,
+
                         PixelFormat.TRANSLUCENT
                 );
 
-        bubbleParams.gravity =
+        params.gravity =
                 Gravity.TOP
                         | Gravity.START;
+
+        // --------------------------------------------------------
+        // LOAD SAVED POSITION
+        // --------------------------------------------------------
 
         android.content.SharedPreferences pref =
                 getSharedPreferences(
@@ -552,38 +908,39 @@ public class FloatingScannerService extends Service {
                         MODE_PRIVATE
                 );
 
-        bubbleParams.x =
+        params.x =
                 pref.getInt(
                         "bubbleX",
                         dp(15)
                 );
 
-        bubbleParams.y =
+        params.y =
                 pref.getInt(
                         "bubbleY",
                         dp(280)
                 );
 
         // --------------------------------------------------------
-        // TOUCH / DRAG
+        // IMPORTANT TOUCH HANDLER
+        // --------------------------------------------------------
+        //
+        // There is NO icon.setOnClickListener().
+        //
+        // The root receives both:
+        //
+        //     DOWN
+        //     MOVE
+        //     UP
+        //
+        // So dragging the actual logo works correctly.
         // --------------------------------------------------------
 
         bubble.setOnTouchListener(
                 new View.OnTouchListener() {
 
-                    float startRawX;
-                    float startRawY;
-
-                    int startX;
-                    int startY;
-
-                    long downTime;
-
-                    boolean moved;
-
                     @Override
                     public boolean onTouch(
-                            View v,
+                            View view,
                             MotionEvent event
                     ) {
 
@@ -591,37 +948,44 @@ public class FloatingScannerService extends Service {
                                 event.getActionMasked()
                         ) {
 
+                            // ------------------------------------
+                            // TOUCH DOWN
+                            // ------------------------------------
+
                             case MotionEvent.ACTION_DOWN:
 
-                                startRawX =
+                                touchStartRawX =
                                         event.getRawX();
 
-                                startRawY =
+                                touchStartRawY =
                                         event.getRawY();
 
-                                startX =
-                                        bubbleParams.x;
+                                touchStartParamX =
+                                        params.x;
 
-                                startY =
-                                        bubbleParams.y;
+                                touchStartParamY =
+                                        params.y;
 
-                                downTime =
+                                touchDownTime =
                                         System.currentTimeMillis();
 
-                                moved =
-                                        false;
+                                touchMoved = false;
 
                                 return true;
+
+                            // ------------------------------------
+                            // DRAG
+                            // ------------------------------------
 
                             case MotionEvent.ACTION_MOVE:
 
                                 float dx =
                                         event.getRawX()
-                                                - startRawX;
+                                                - touchStartRawX;
 
                                 float dy =
                                         event.getRawY()
-                                                - startRawY;
+                                                - touchStartRawY;
 
                                 if (
                                         Math.abs(dx)
@@ -630,68 +994,76 @@ public class FloatingScannerService extends Service {
                                                 > dp(5)
                                 ) {
 
-                                    moved =
-                                            true;
+                                    touchMoved = true;
                                 }
 
-                                bubbleParams.x =
+                                params.x =
                                         Math.max(
                                                 0,
-                                                startX
-                                                        + (int) dx
+                                                touchStartParamX
+                                                        + Math.round(dx)
                                         );
 
-                                bubbleParams.y =
+                                params.y =
                                         Math.max(
                                                 0,
-                                                startY
-                                                        + (int) dy
+                                                touchStartParamY
+                                                        + Math.round(dy)
                                         );
 
                                 saveBubblePosition();
 
                                 try {
 
-                                    windowManager
-                                            .updateViewLayout(
-                                                    bubble,
-                                                    bubbleParams
-                                            );
+                                    wm.updateViewLayout(
+                                            bubble,
+                                            params
+                                    );
 
-                                } catch (Exception ignored) {}
+                                } catch (Exception ignored) {
+                                }
 
                                 return true;
+
+                            // ------------------------------------
+                            // RELEASE
+                            // ------------------------------------
 
                             case MotionEvent.ACTION_UP:
 
                                 long duration =
                                         System.currentTimeMillis()
-                                                - downTime;
+                                                - touchDownTime;
 
+                                /*
+                                 * Short tap = scan.
+                                 *
+                                 * Drag = only move.
+                                 */
                                 if (
-                                        !moved
-                                                && duration < 450
+                                        !touchMoved
+                                                && duration < 450L
                                 ) {
 
-                                    /*
-                                     * Floating Icon tap
-                                     * ALWAYS starts scan.
-                                     */
-                                    long now =
-                                            System.currentTimeMillis();
+                                    if (continuous) {
 
-                                    if (
-                                            now
-                                                    - lastTapTime
-                                                    > 500
-                                    ) {
+                                        stopEverything();
 
-                                        lastTapTime =
-                                                now;
+                                    } else {
 
-                                        startScan();
+                                        startContinuous();
                                     }
                                 }
+
+                                return true;
+
+                            // ------------------------------------
+                            // CANCEL
+                            // ------------------------------------
+
+                            case MotionEvent.ACTION_CANCEL:
+
+                                touchMoved = true;
 
                                 return true;
                         }
@@ -701,24 +1073,32 @@ public class FloatingScannerService extends Service {
                 }
         );
 
+        // --------------------------------------------------------
+        // ADD WINDOW
+        // --------------------------------------------------------
+
         try {
 
-            windowManager.addView(
+            wm.addView(
                     bubble,
-                    bubbleParams
+                    params
             );
 
         } catch (Exception e) {
 
             bubble = null;
+
+            icon = null;
+
+            badge = null;
         }
     }
 
-    private void saveBubblePosition() {
+    // ============================================================
+    // SAVE POSITION
+    // ============================================================
 
-        if (bubbleParams == null) {
-            return;
-        }
+    private void saveBubblePosition() {
 
         getSharedPreferences(
                 "scanner_settings",
@@ -727,30 +1107,63 @@ public class FloatingScannerService extends Service {
                 .edit()
                 .putInt(
                         "bubbleX",
-                        bubbleParams.x
+                        params.x
                 )
                 .putInt(
                         "bubbleY",
-                        bubbleParams.y
+                        params.y
                 )
                 .apply();
     }
 
     // ============================================================
-    // FINAL RESULT
+    // SHOW FINAL RESULT
     // ============================================================
 
-    private void showFinalResult(
+    private void showBadge(
             String signal,
             float score
     ) {
 
-        if (resultBadge == null) {
+        if (
+                bubble == null
+                        || badge == null
+                        || params == null
+        ) {
+
             return;
         }
 
-        resultBadge.setText(
-                signal
+        if (
+                !signal.equals("UP")
+                        && !signal.equals("DOWN")
+        ) {
+
+            return;
+        }
+
+        if (score < MIN_SIGNAL_SCORE) {
+
+            return;
+        }
+
+        // Keep visual score range
+        score =
+                Math.max(
+                        90.0f,
+                        Math.min(
+                                97.0f,
+                                score
+                        )
+                );
+
+        // --------------------------------------------------------
+        // RESULT TEXT
+        // --------------------------------------------------------
+
+        badge.setText(
+                "STRONG "
+                        + signal
                         + " "
                         + String.format(
                         Locale.US,
@@ -759,77 +1172,146 @@ public class FloatingScannerService extends Service {
                 )
         );
 
-        GradientDrawable background =
+        // --------------------------------------------------------
+        // RESULT COLOR
+        // --------------------------------------------------------
+
+        GradientDrawable bg =
                 new GradientDrawable();
 
-        background.setCornerRadius(
+        bg.setCornerRadius(
                 dp(8)
         );
 
-        if ("UP".equals(signal)) {
+        if (signal.equals("UP")) {
 
-            background.setColor(
+            bg.setColor(
                     Color.rgb(
                             0,
-                            125,
+                            120,
                             70
                     )
             );
 
-            background.setStroke(
+            bg.setStroke(
                     dp(1),
                     Color.rgb(
-                            80,
-                            255,
-                            175
+                            60,
+                            240,
+                            165
                     )
             );
 
         } else {
 
-            background.setColor(
+            bg.setColor(
                     Color.rgb(
-                            150,
+                            145,
                             25,
-                            40
+                            38
                     )
             );
 
-            background.setStroke(
+            bg.setStroke(
                     dp(1),
                     Color.rgb(
                             255,
-                            90,
-                            100
+                            75,
+                            90
                     )
             );
         }
 
-        resultBadge.setBackground(
-                background
+        badge.setBackground(
+                bg
         );
 
-        resultBadge.setVisibility(
+        // --------------------------------------------------------
+        // SHOW RESULT BESIDE ICON
+        // --------------------------------------------------------
+
+        badge.setVisibility(
                 View.VISIBLE
         );
 
         /*
-         * Result remains beside icon for a while.
-         * User can tap icon again for a new scan.
+         * Increase floating window width so the
+         * result card is beside the icon.
          */
-        handler.postDelayed(
-                this::hideFinalResult,
-                RESULT_HIDE_DELAY
-        );
+        params.width =
+                resultBubbleWidth();
+
+        params.height =
+                bubbleHeight();
+
+        // --------------------------------------------------------
+        // KEEP ICON ON SCREEN
+        // --------------------------------------------------------
+
+        int screenWidth =
+                getResources()
+                        .getDisplayMetrics()
+                        .widthPixels;
+
+        int maxX =
+                Math.max(
+                        0,
+                        screenWidth
+                                - params.width
+                                - dp(2)
+                );
+
+        if (params.x > maxX) {
+
+            params.x = maxX;
+
+            saveBubblePosition();
+        }
+
+        try {
+
+            wm.updateViewLayout(
+                    bubble,
+                    params
+            );
+
+        } catch (Exception ignored) {
+        }
     }
 
-    private void hideFinalResult() {
+    // ============================================================
+    // HIDE RESULT
+    // ============================================================
 
-        if (resultBadge != null) {
+    private void hideBadge() {
 
-            resultBadge.setVisibility(
+        if (badge != null) {
+
+            badge.setVisibility(
                     View.GONE
             );
+        }
+
+        if (
+                params != null
+                        && bubble != null
+        ) {
+
+            params.width =
+                    normalBubbleWidth();
+
+            params.height =
+                    bubbleHeight();
+
+            try {
+
+                wm.updateViewLayout(
+                        bubble,
+                        params
+                );
+
+            } catch (Exception ignored) {
+            }
         }
     }
 
@@ -841,11 +1323,10 @@ public class FloatingScannerService extends Service {
 
         if (
                 scanOverlay != null
-                        || windowManager == null
-                        || !Settings.canDrawOverlays(
-                        this
-                )
+                        || wm == null
+                        || !Settings.canDrawOverlays(this)
         ) {
+
             return;
         }
 
@@ -856,17 +1337,20 @@ public class FloatingScannerService extends Service {
                 new WindowManager.LayoutParams(
                         -1,
                         -1,
+
                         Build.VERSION.SDK_INT >= 26
                                 ? WindowManager.LayoutParams
                                 .TYPE_APPLICATION_OVERLAY
                                 : WindowManager.LayoutParams
                                 .TYPE_PHONE,
+
                         WindowManager.LayoutParams
                                 .FLAG_NOT_FOCUSABLE
                                 | WindowManager.LayoutParams
                                 .FLAG_NOT_TOUCHABLE
                                 | WindowManager.LayoutParams
                                 .FLAG_LAYOUT_NO_LIMITS,
+
                         PixelFormat.TRANSLUCENT
                 );
 
@@ -876,7 +1360,7 @@ public class FloatingScannerService extends Service {
 
         try {
 
-            windowManager.addView(
+            wm.addView(
                     scanOverlay,
                     overlayParams
             );
@@ -887,24 +1371,29 @@ public class FloatingScannerService extends Service {
         }
     }
 
+    // ============================================================
+    // HIDE SCAN OVERLAY
+    // ============================================================
+
     private void hideScanOverlay() {
 
         if (scanOverlay != null) {
 
             try {
 
-                windowManager.removeView(
+                wm.removeView(
                         scanOverlay
                 );
 
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
 
             scanOverlay = null;
         }
     }
 
     // ============================================================
-    // FOREGROUND
+    // FOREGROUND SERVICE
     // ============================================================
 
     private void startForegroundCompat() {
@@ -935,7 +1424,9 @@ public class FloatingScannerService extends Service {
                         this,
                         channelId
                 )
-                        : new Notification.Builder(this);
+                        : new Notification.Builder(
+                        this
+                );
 
         startForeground(
                 9903,
@@ -944,10 +1435,11 @@ public class FloatingScannerService extends Service {
                                 "MD JIBON Scanner"
                         )
                         .setContentText(
-                                "Floating market scanner active"
+                                "Current-screen continuous scanner active"
                         )
                         .setSmallIcon(
-                                android.R.drawable.ic_menu_search
+                                android.R.drawable
+                                        .ic_menu_search
                         )
                         .build()
         );
@@ -957,9 +1449,7 @@ public class FloatingScannerService extends Service {
     // DP
     // ============================================================
 
-    private int dp(
-            int value
-    ) {
+    private int dp(float value) {
 
         return Math.round(
                 value
@@ -969,56 +1459,76 @@ public class FloatingScannerService extends Service {
         );
     }
 
+    // ============================================================
+    // DESTROY
+    // ============================================================
+
     @Override
     public void onDestroy() {
 
-        running =
-                false;
+        running = false;
 
-        scanning =
-                false;
+        stopEverything();
 
-        hideScanOverlay();
+        if (handler != null) {
 
-        hideFinalResult();
+            handler.removeCallbacksAndMessages(
+                    null
+            );
+        }
 
         try {
+
             unregisterReceiver(
                     receiver
             );
-        } catch (Exception ignored) {}
+
+        } catch (Exception ignored) {
+        }
 
         if (
                 bubble != null
-                        && windowManager != null
+                        && wm != null
         ) {
 
             try {
 
-                windowManager.removeView(
+                wm.removeView(
                         bubble
                 );
 
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         bubble = null;
 
+        icon = null;
+
+        badge = null;
+
+        hideScanOverlay();
+
         super.onDestroy();
     }
+
+    // ============================================================
+    // BIND
+    // ============================================================
 
     @Override
     public IBinder onBind(
             Intent intent
     ) {
+
         return null;
     }
 
     // ============================================================
-    // OVERLAY VIEW
+    // BLUE SCAN OVERLAY VIEW
     // ============================================================
 
-    private static final class ScanOverlay
+    private static class ScanOverlay
             extends View {
 
         private final Paint paint =
@@ -1031,8 +1541,8 @@ public class FloatingScannerService extends Service {
                         Looper.getMainLooper()
                 );
 
-        private float scanY =
-                -50.0f;
+        private float y =
+                -40f;
 
         private final Runnable animation =
                 new Runnable() {
@@ -1040,32 +1550,29 @@ public class FloatingScannerService extends Service {
                     @Override
                     public void run() {
 
-                        scanY +=
-                                Math.max(
-                                        9.0f,
-                                        getResources()
-                                                .getDisplayMetrics()
-                                                .heightPixels
-                                                / 45.0f
-                                );
+                        y += Math.max(
+                                10f,
+                                getResources()
+                                        .getDisplayMetrics()
+                                        .heightPixels
+                                        / 42f
+                        );
 
                         if (
-                                scanY
+                                y
                                         > getHeight()
-                                                + 60
+                                        + 40
                         ) {
 
-                            scanY =
-                                    -60;
+                            y = -40f;
                         }
 
                         invalidate();
 
-                        animationHandler
-                                .postDelayed(
-                                        this,
-                                        28
-                                );
+                        animationHandler.postDelayed(
+                                this,
+                                28L
+                        );
                     }
                 };
 
@@ -1090,20 +1597,23 @@ public class FloatingScannerService extends Service {
                 Canvas canvas
         ) {
 
-            super.onDraw(canvas);
+            super.onDraw(
+                    canvas
+            );
 
             paint.setStyle(
                     Paint.Style.FILL
             );
 
-            /*
-             * Full blue translucent layer.
-             */
+            // --------------------------------------------------------
+            // BLUE TRANSPARENT SCREEN COVER
+            // --------------------------------------------------------
+
             paint.setColor(
                     Color.argb(
                             48,
                             0,
-                            100,
+                            110,
                             255
                     )
             );
@@ -1116,14 +1626,15 @@ public class FloatingScannerService extends Service {
                     paint
             );
 
-            /*
-             * Moving blue scan trail.
-             */
+            // --------------------------------------------------------
+            // BLUE TRAIL
+            // --------------------------------------------------------
+
             paint.setColor(
                     Color.argb(
-                            55,
+                            58,
                             40,
-                            140,
+                            145,
                             255
                     )
             );
@@ -1132,47 +1643,52 @@ public class FloatingScannerService extends Service {
                     0,
                     Math.max(
                             0,
-                            scanY - 120
+                            y - 105
                     ),
                     getWidth(),
-                    scanY,
+                    y,
                     paint
             );
 
-            /*
-             * Main scan line.
-             */
+            // --------------------------------------------------------
+            // BRIGHT SCAN BAR
+            // --------------------------------------------------------
+
             paint.setColor(
                     Color.argb(
-                            215,
-                            45,
-                            150,
+                            205,
+                            55,
+                            165,
                             255
                     )
             );
 
             canvas.drawRect(
                     0,
-                    scanY - 5,
+                    y - 5,
                     getWidth(),
-                    scanY + 5,
+                    y + 5,
                     paint
             );
 
+            // --------------------------------------------------------
+            // CENTER LINE
+            // --------------------------------------------------------
+
             paint.setColor(
                     Color.argb(
-                            130,
-                            110,
-                            210,
+                            120,
+                            100,
+                            200,
                             255
                     )
             );
 
             canvas.drawRect(
                     0,
-                    scanY - 1,
+                    y - 1,
                     getWidth(),
-                    scanY + 1,
+                    y + 1,
                     paint
             );
         }
@@ -1180,10 +1696,9 @@ public class FloatingScannerService extends Service {
         @Override
         protected void onDetachedFromWindow() {
 
-            animationHandler
-                    .removeCallbacks(
-                            animation
-                    );
+            animationHandler.removeCallbacks(
+                    animation
+            );
 
             super.onDetachedFromWindow();
         }
