@@ -1,57 +1,90 @@
 package com.mdjibon.scanner;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.InputStream;
-import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
 
-    private static final int PICK_IMAGE =
-            5001;
+    private static final int PICK_IMAGE = 8101;
+    private static final int REQUEST_CAPTURE = 8102;
+    private static final String PREF = "scanner_settings";
 
-    private static final int REQUEST_CAPTURE =
-            5002;
+    private static final String[] TIMEFRAMES = {
+            "5 SEC",
+            "10 SEC",
+            "15 SEC",
+            "30 SEC",
+            "1 MIN",
+            "5 MIN"
+    };
 
-    private static final String PREF =
-            "scanner_settings";
+    private static final String[] MARKETS = {
+            "EUR/USD (OTC)",
+            "GBP/USD (OTC)",
+            "USD/JPY (OTC)",
+            "USD/CHF (OTC)",
+            "AUD/USD (OTC)",
+            "USD/CAD (OTC)",
+            "EUR/GBP (OTC)",
+            "EUR/JPY (OTC)",
+            "GBP/JPY (OTC)",
+            "AUD/JPY (OTC)",
+            "USD/BRL (OTC)",
+            "USD/INR (OTC)",
+            "USD/PKR (OTC)",
+            "USD/BDT (OTC)",
+            "EUR/AUD (OTC)",
+            "GBP/AUD (OTC)",
+            "AUD/CAD (OTC)",
+            "NZD/USD (OTC)",
+            "NZD/JPY (OTC)",
+            "CAD/JPY (OTC)",
+            "CHF/JPY (OTC)",
+            "EUR/CAD (OTC)",
+            "EUR/CHF (OTC)",
+            "GBP/CAD (OTC)",
+            "GBP/CHF (OTC)",
+            "NZD/CAD (OTC)",
+            "AUD/NZD (OTC)",
+            "USD/ZAR (OTC)",
+            "USD/MXN (OTC)",
+            "USD/COP (OTC)"
+    };
 
-    private static final String KEY_MARKET =
-            "market";
+    private FrameLayout root;
+    private LinearLayout content;
 
-    private static final String KEY_TIMEFRAME =
-            "timeframe";
-
+    private TextView title;
     private TextView status;
-    private TextView resultText;
+    private TextView signal;
+    private TextView score;
+    private TextView details;
 
-    private Spinner marketSpinner;
-    private Spinner timeframeSpinner;
-
+    private ImageView preview;
     private Switch floatingSwitch;
 
     private Bitmap selectedBitmap;
@@ -59,131 +92,187 @@ public class MainActivity extends Activity {
     private final ExecutorService executor =
             Executors.newSingleThreadExecutor();
 
-    private static final String[] MARKETS = {
+    private final BroadcastReceiver receiver =
+            new BroadcastReceiver() {
 
-            "EUR/AUD (OTC)",
-            "GBP/JPY (OTC)",
-            "AUD/CHF (OTC)",
-            "CAD/JPY (OTC)",
-            "NZD/JPY (OTC)",
-            "USD/COP (OTC)",
-            "USD/EGP (OTC)",
-            "USD/PHP (OTC)",
-            "EUR/JPY (OTC)",
-            "USD/CHF (OTC)",
-            "EUR/NZD (OTC)",
-            "USD/MXN (OTC)",
-            "CHF/JPY (OTC)",
-            "USD/CAD (OTC)",
-            "EUR/GBP (OTC)",
-            "NZD/USD (OTC)",
-            "AUD/CAD (OTC)",
-            "GBP/AUD (OTC)",
-            "NZD/CHF (OTC)",
-            "AUD/JPY (OTC)",
-            "USD/IDR (OTC)",
-            "USD/PKR (OTC)",
-            "GBP/CAD (OTC)",
-            "GBP/CHF (OTC)",
-            "USD/INR (OTC)",
-            "AUD/USD (OTC)",
-            "USD/BRL (OTC)",
-            "CAD/CHF (OTC)",
-            "EUR/CAD (OTC)",
-            "EUR/CHF (OTC)",
-            "EUR/USD (OTC)",
-            "USD/ARS (OTC)",
-            "USD/BDT (OTC)",
-            "USD/DZD (OTC)",
-            "USD/JPY (OTC)",
-            "GBP/NZD (OTC)",
-            "NZD/CAD (OTC)",
-            "AUD/NZD (OTC)",
-            "USD/ZAR (OTC)",
-            "GBP/USD (OTC)"
-    };
+                @Override
+                public void onReceive(
+                        Context context,
+                        Intent intent) {
 
-    private static final String[] TIMEFRAMES = {
+                    if (intent == null) {
+                        return;
+                    }
 
-            "1 MIN",
-            "5 MIN",
-            "15 SEC",
-            "30 SEC"
-    };
+                    String action = intent.getAction();
+
+                    if (ScreenCaptureService.ACTION_SCAN_STATUS.equals(action)) {
+
+                        if (status != null) {
+
+                            String message =
+                                    intent.getStringExtra("message");
+
+                            if (message == null) {
+                                message = "SCANNING...";
+                            }
+
+                            status.setText(message);
+                        }
+
+                        return;
+                    }
+
+                    if (ScreenCaptureService.ACTION_RESULT.equals(action)) {
+
+                        showResult(intent);
+                        return;
+                    }
+
+                    if (ScreenCaptureService.ACTION_ERROR.equals(action)) {
+
+                        String message =
+                                intent.getStringExtra("message");
+
+                        if (message == null) {
+                            message = "Unknown scanner error.";
+                        }
+
+                        if (status != null) {
+                            status.setText("ERROR: " + message);
+                        }
+
+                        Toast.makeText(
+                                MainActivity.this,
+                                message,
+                                Toast.LENGTH_LONG
+                        ).show();
+                    }
+                }
+            };
 
     @Override
-    protected void onCreate(
-            Bundle state
-    ) {
+    protected void onCreate(Bundle savedInstanceState) {
 
-        super.onCreate(state);
+        super.onCreate(savedInstanceState);
 
         getWindow().setStatusBarColor(
-                Color.rgb(
-                        4,
-                        9,
-                        18
-                )
+                Color.rgb(3, 8, 15)
         );
 
         getWindow().setNavigationBarColor(
-                Color.rgb(
-                        3,
-                        7,
-                        14
-                )
+                Color.rgb(3, 8, 15)
         );
 
-        buildUi();
+        buildShell();
 
-        restoreSettings();
+        IntentFilter filter =
+                new IntentFilter();
+
+        filter.addAction(
+                ScreenCaptureService.ACTION_RESULT
+        );
+
+        filter.addAction(
+                ScreenCaptureService.ACTION_ERROR
+        );
+
+        filter.addAction(
+                ScreenCaptureService.ACTION_SCAN_STATUS
+        );
+
+        if (Build.VERSION.SDK_INT >= 33) {
+
+            registerReceiver(
+                    receiver,
+                    filter,
+                    Context.RECEIVER_NOT_EXPORTED
+            );
+
+        } else {
+
+            registerReceiver(
+                    receiver,
+                    filter
+            );
+        }
+
+        showHome();
     }
 
-    // ============================================================
-    // UI
-    // ============================================================
+    @Override
+    protected void onResume() {
 
-    private void buildUi() {
+        super.onResume();
 
-        ScrollView scroll =
-                new ScrollView(this);
+        if (floatingSwitch != null) {
 
-        scroll.setFillViewport(
-                true
+            floatingSwitch.setChecked(
+                    FloatingScannerService.isRunning()
+            );
+        }
+    }
+
+    private void buildShell() {
+
+        root =
+                new FrameLayout(this);
+
+        root.setBackgroundColor(
+                Color.rgb(3, 8, 15)
         );
 
-        LinearLayout root =
+        setContentView(root);
+
+        LinearLayout shell =
                 new LinearLayout(this);
 
-        root.setOrientation(
+        shell.setOrientation(
                 LinearLayout.VERTICAL
         );
 
-        root.setPadding(
-                dp(18),
-                dp(14),
-                dp(18),
-                dp(22)
-        );
-
-        root.setBackgroundColor(
-                Color.rgb(
-                        4,
-                        9,
-                        18
+        root.addView(
+                shell,
+                new FrameLayout.LayoutParams(
+                        -1,
+                        -1
                 )
         );
 
-        scroll.addView(root);
+        LinearLayout header =
+                new LinearLayout(this);
 
-        // --------------------------------------------------------
-        // TITLE
-        // --------------------------------------------------------
+        header.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
 
-        TextView title =
+        header.setPadding(
+                dp(16),
+                dp(10),
+                dp(16),
+                dp(8)
+        );
+
+        ImageView logo =
+                new ImageView(this);
+
+        logo.setImageResource(
+                R.drawable.md_jibon_logo
+        );
+
+        logo.setScaleType(
+                ImageView.ScaleType.CENTER_CROP
+        );
+
+        header.addView(
+                logo,
+                lp(dp(58), dp(54))
+        );
+
+        title =
                 text(
-                        "MD JIBON SCREEN SCANNER",
-                        26,
+                        "MD JIBON",
+                        21,
                         true
                 );
 
@@ -191,120 +280,221 @@ public class MainActivity extends Activity {
                 Color.WHITE
         );
 
-        root.addView(title);
+        title.setPadding(
+                dp(12),
+                0,
+                0,
+                0
+        );
 
-        TextView subtitle =
+        header.addView(
+                title,
+                lp(0, dp(54), 1)
+        );
+
+        shell.addView(header);
+
+        content =
+                new LinearLayout(this);
+
+        content.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        ScrollView scroll =
+                new ScrollView(this);
+
+        scroll.addView(content);
+
+        shell.addView(
+                scroll,
+                lp(-1, 0, 1)
+        );
+
+        LinearLayout nav =
+                new LinearLayout(this);
+
+        nav.setPadding(
+                dp(6),
+                dp(5),
+                dp(6),
+                dp(7)
+        );
+
+        String[] navItems = {
+                "HOME",
+                "SCAN",
+                "SETTINGS"
+        };
+
+        for (String item : navItems) {
+
+            Button b =
+                    button(
+                            item,
+                            false
+                    );
+
+            b.setOnClickListener(
+                    v -> {
+
+                        if ("HOME".equals(item)) {
+
+                            showHome();
+
+                        } else if ("SCAN".equals(item)) {
+
+                            showScan();
+
+                        } else {
+
+                            showSettings();
+                        }
+                    }
+            );
+
+            nav.addView(
+                    b,
+                    lp(0, dp(50), 1)
+            );
+        }
+
+        shell.addView(nav);
+    }
+
+    private void showHome() {
+
+        title.setText("MD JIBON");
+
+        content.removeAllViews();
+
+        content.setPadding(
+                dp(16),
+                dp(8),
+                dp(16),
+                dp(18)
+        );
+
+        TextView heading =
                 text(
-                        "20,000 MARKET LOGIC CHECKS",
-                        14,
+                        "REAL SCREEN\nSCANNER",
+                        28,
+                        true
+                );
+
+        heading.setGravity(
+                Gravity.CENTER
+        );
+
+        heading.setTextColor(
+                Color.WHITE
+        );
+
+        content.addView(
+                heading,
+                lp(-1, dp(100))
+        );
+
+        TextView note =
+                text(
+                        "CURRENT SCREEN ONLY â€¢ NO HISTORY",
+                        13,
+                        true
+                );
+
+        note.setGravity(
+                Gravity.CENTER
+        );
+
+        note.setTextColor(
+                Color.rgb(70, 190, 255)
+        );
+
+        content.addView(
+                note,
+                lp(-1, dp(44))
+        );
+
+        content.addView(
+                label("MARKET & TIMEFRAME")
+        );
+
+        LinearLayout row =
+                new LinearLayout(this);
+
+        Button market =
+                button(
+                        "MARKET\n" + market(),
                         false
                 );
 
-        subtitle.setTextColor(
-                Color.rgb(
-                        80,
-                        190,
-                        255
-                )
+        market.setOnClickListener(
+                v -> chooseMarket()
         );
 
-        root.addView(subtitle);
-
-        // --------------------------------------------------------
-        // MARKET + TIMEFRAME
-        // --------------------------------------------------------
-
-        LinearLayout selectors =
-                new LinearLayout(this);
-
-        selectors.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
-
-        marketSpinner =
-                spinner(MARKETS);
-
-        timeframeSpinner =
-                spinner(TIMEFRAMES);
-
-        selectors.addView(
-                marketSpinner,
-                new LinearLayout.LayoutParams(
-                        0,
-                        dp(50),
-                        1
-                )
-        );
-
-        LinearLayout.LayoutParams timeframeParams =
-                new LinearLayout.LayoutParams(
-                        dp(125),
-                        dp(50)
+        Button timeframe =
+                button(
+                        "TIMEFRAME\n" + timeframe(),
+                        false
                 );
 
-        timeframeParams.leftMargin =
+        timeframe.setOnClickListener(
+                v -> chooseTimeframe()
+        );
+
+        row.addView(
+                market,
+                lp(0, dp(70), 1)
+        );
+
+        LinearLayout.LayoutParams tfp =
+                lp(0, dp(70), 1);
+
+        tfp.leftMargin =
                 dp(8);
 
-        selectors.addView(
-                timeframeSpinner,
-                timeframeParams
+        row.addView(
+                timeframe,
+                tfp
         );
 
-        root.addView(
-                selectors
+        content.addView(row);
+
+        Button scan =
+                primary(
+                        "START CONTINUOUS SCAN"
+                );
+
+        scan.setOnClickListener(
+                v -> startContinuous()
         );
 
-        marketSpinner.setOnItemSelectedListener(
-                new android.widget.AdapterView
-                        .OnItemSelectedListener() {
-
-                    @Override
-                    public void onNothingSelected(
-                            android.widget.AdapterView<?> parent
-                    ) {}
-
-                    @Override
-                    public void onItemSelected(
-                            android.widget.AdapterView<?> parent,
-                            View view,
-                            int position,
-                            long id
-                    ) {
-                        saveSettings();
-                    }
-                }
+        content.addView(
+                scan,
+                lp(-1, dp(64))
         );
 
-        timeframeSpinner.setOnItemSelectedListener(
-                new android.widget.AdapterView
-                        .OnItemSelectedListener() {
+        Button upload =
+                button(
+                        "ANALYZE CURRENT/UPLOADED SCREENSHOT",
+                        false
+                );
 
-                    @Override
-                    public void onNothingSelected(
-                            android.widget.AdapterView<?> parent
-                    ) {}
-
-                    @Override
-                    public void onItemSelected(
-                            android.widget.AdapterView<?> parent,
-                            View view,
-                            int position,
-                            long id
-                    ) {
-                        saveSettings();
-                    }
-                }
+        upload.setOnClickListener(
+                v -> pickImage()
         );
 
-        // --------------------------------------------------------
-        // INFORMATION
-        // --------------------------------------------------------
+        content.addView(
+                upload,
+                lp(-1, dp(58))
+        );
 
         TextView info =
                 text(
-                        "OPEN A MARKET CHART FIRST.\n"
-                                + "Then press the Floating Icon to scan.",
-                        15,
+                        "à¦¸à§à¦•à§à¦¯à¦¾à¦¨ à¦¶à§à¦°à§ à¦¹à¦²à§‡ à¦ªà§à¦°à§‹ à¦¡à¦¿à¦¸à¦ªà§à¦²à§‡à¦° à¦‰à¦ªà¦° à¦¨à§€à¦² translucent scan layer à¦‰à¦ªà¦° à¦¥à§‡à¦•à§‡ à¦¨à¦¿à¦šà§‡ sweep à¦•à¦°à¦¬à§‡à¥¤ " +
+                        "à¦¬à¦°à§à¦¤à¦®à¦¾à¦¨ screen à¦¬à¦¾à¦°à¦¬à¦¾à¦° analyse à¦¹à¦¬à§‡à¥¤ à¦¶à¦•à§à¦¤à¦¿à¦¶à¦¾à¦²à§€ agreement à¦¨à¦¾ à¦ªà¦¾à¦“à§Ÿà¦¾ à¦ªà¦°à§à¦¯à¦¨à§à¦¤ UP/DOWN final à¦˜à§‹à¦·à¦£à¦¾ à¦¹à¦¬à§‡ à¦¨à¦¾à¥¤ " +
+                        "à¦•à§‹à¦¨à§‹ automatic trade à¦¬à¦¾ order action à¦¨à§‡à¦‡à¥¤",
+                        13,
                         false
                 );
 
@@ -312,102 +502,151 @@ public class MainActivity extends Activity {
                 Color.LTGRAY
         );
 
-        info.setGravity(
-                Gravity.CENTER
+        info.setPadding(
+                0,
+                dp(14),
+                0,
+                0
         );
 
-        root.addView(info);
+        content.addView(
+                info,
+                lp(-1, dp(150))
+        );
+    }
 
-        // --------------------------------------------------------
-        // SCREEN CAPTURE
-        // --------------------------------------------------------
+    private void showScan() {
 
-        Button capture =
-                button(
-                        "ENABLE SCREEN CAPTURE",
-                        Color.rgb(
-                                20,
-                                115,
-                                220
-                        )
-                );
+        title.setText("LIVE SCAN");
 
-        capture.setOnClickListener(
-                v ->
-                        requestScreenCapture()
+        content.removeAllViews();
+
+        content.setPadding(
+                dp(16),
+                dp(8),
+                dp(16),
+                dp(18)
         );
 
-        root.addView(
-                capture
-        );
-
-        // --------------------------------------------------------
-        // UPLOAD SCREENSHOT
-        // --------------------------------------------------------
-
-        Button upload =
-                button(
-                        "UPLOAD MARKET SCREENSHOT",
-                        Color.rgb(
-                                25,
-                                100,
-                                190
-                        )
-                );
-
-        upload.setOnClickListener(
-                v ->
-                        pickImage()
-        );
-
-        root.addView(
-                upload
-        );
-
-        // --------------------------------------------------------
-        // ANALYZE BUTTON
-        // --------------------------------------------------------
-
-        Button analyze =
-                button(
-                        "ANALYZE • 20,000 CHECKS",
-                        Color.rgb(
-                                0,
-                                170,
-                                95
-                        )
-                );
-
-        analyze.setOnClickListener(
-                v ->
-                        analyzeSelected()
-        );
-
-        root.addView(
-                analyze
-        );
-
-        // --------------------------------------------------------
-        // FLOATING SCANNER
-        // --------------------------------------------------------
-
-        TextView floatingTitle =
+        status =
                 text(
-                        "FLOATING SCANNER",
-                        19,
+                        "READY",
+                        17,
                         true
                 );
 
-        floatingTitle.setGravity(
+        status.setTextColor(
+                Color.rgb(65, 240, 165)
+        );
+
+        content.addView(
+                status,
+                lp(-1, dp(55))
+        );
+
+        preview =
+                new ImageView(this);
+
+        preview.setScaleType(
+                ImageView.ScaleType.CENTER_INSIDE
+        );
+
+        preview.setBackgroundColor(
+                Color.rgb(7, 15, 25)
+        );
+
+        content.addView(
+                preview,
+                lp(-1, dp(285))
+        );
+
+        signal =
+                text(
+                        "FLOATING ICON",
+                        28,
+                        true
+                );
+
+        signal.setGravity(
                 Gravity.CENTER
         );
 
-        floatingTitle.setTextColor(
-                Color.WHITE
+        signal.setTextColor(
+                Color.rgb(70, 190, 255)
         );
 
-        root.addView(
-                floatingTitle
+        content.addView(
+                signal,
+                lp(-1, dp(70))
+        );
+
+        score =
+                text(
+                        "FINAL SIGNAL APPEARS ONLY AFTER STRONG ANALYSIS",
+                        13,
+                        true
+                );
+
+        score.setGravity(
+                Gravity.CENTER
+        );
+
+        score.setTextColor(
+                Color.rgb(120, 180, 220)
+        );
+
+        content.addView(
+                score,
+                lp(-1, dp(54))
+        );
+
+        details =
+                text(
+                        "Current screen analysis only.\n" +
+                                "No historical results are kept inside the app.",
+                        14,
+                        false
+                );
+
+        details.setTextColor(
+                Color.LTGRAY
+        );
+
+        content.addView(
+                details,
+                lp(-1, dp(120))
+        );
+
+        Button b =
+                primary(
+                        "START / RESTART SCAN"
+                );
+
+        b.setOnClickListener(
+                v -> startContinuous()
+        );
+
+        content.addView(
+                b,
+                lp(-1, dp(58))
+        );
+    }
+
+    private void showSettings() {
+
+        title.setText("SETTINGS");
+
+        content.removeAllViews();
+
+        content.setPadding(
+                dp(16),
+                dp(8),
+                dp(16),
+                dp(18)
+        );
+
+        content.addView(
+                label("SCANNER")
         );
 
         floatingSwitch =
@@ -422,11 +661,15 @@ public class MainActivity extends Activity {
         );
 
         floatingSwitch.setTextSize(
-                16
+                17
+        );
+
+        floatingSwitch.setChecked(
+                FloatingScannerService.isRunning()
         );
 
         floatingSwitch.setOnCheckedChangeListener(
-                (button, checked) -> {
+                (buttonView, checked) -> {
 
                     if (checked) {
 
@@ -439,232 +682,67 @@ public class MainActivity extends Activity {
                 }
         );
 
-        root.addView(
-                floatingSwitch
+        content.addView(
+                floatingSwitch,
+                lp(-1, dp(60))
         );
 
-        // --------------------------------------------------------
-        // STATUS
-        // --------------------------------------------------------
-
-        status =
+        TextView t =
                 text(
-                        "READY • OPEN MARKET CHART",
-                        15,
+                        "Settings-à¦ à¦¶à§à¦§à§ Floating Icon control à¦°à¦¾à¦–à¦¾ à¦¹à§Ÿà§‡à¦›à§‡à¥¤ " +
+                                "Market à¦à¦¬à¦‚ Timeframe Home à¦¥à§‡à¦•à§‡ à¦¨à¦¿à¦°à§à¦¬à¦¾à¦šà¦¨ à¦•à¦°à¦¾ à¦¯à¦¾à¦¬à§‡à¥¤ " +
+                                "History, à¦ªà§à¦°à§‹à¦¨à§‹ panel à¦¬à¦¾ saved results à¦°à¦¾à¦–à¦¾ à¦¹à§Ÿ à¦¨à¦¾à¥¤",
+                        14,
                         false
                 );
 
-        status.setTextColor(
+        t.setTextColor(
                 Color.LTGRAY
         );
 
-        status.setGravity(
-                Gravity.CENTER
-        );
-
-        root.addView(
-                status
-        );
-
-        // --------------------------------------------------------
-        // RESULT
-        // --------------------------------------------------------
-
-        resultText =
-                text(
-                        "ANALYSIS RESULT\n\n"
-                                + "No result yet.\n\n"
-                                + "The scanner will only return UP or DOWN "
-                                + "when strong market evidence is detected.",
-                        16,
-                        false
-                );
-
-        resultText.setTextColor(
-                Color.WHITE
-        );
-
-        resultText.setPadding(
-                dp(14),
-                dp(14),
-                dp(14),
-                dp(14)
-        );
-
-        root.addView(
-                resultText,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        dp(420)
-                )
-        );
-
-        TextView note =
-                text(
-                        "20,000 evidence checks • Real candles only • "
-                                + "No synthetic candles • Evidence score is not guaranteed win rate.",
-                        12,
-                        false
-                );
-
-        note.setTextColor(
-                Color.GRAY
-        );
-
-        root.addView(note);
-
-        setContentView(
-                scroll
+        content.addView(
+                t,
+                lp(-1, dp(130))
         );
     }
 
-    // ============================================================
-    // SCREEN CAPTURE
-    // ============================================================
+    private void startContinuous() {
 
-    private void requestScreenCapture() {
+        showScan();
 
-        MediaProjectionManager manager =
-                (MediaProjectionManager)
-                        getSystemService(
-                                MEDIA_PROJECTION_SERVICE
-                        );
+        if (!Settings.canDrawOverlays(this)) {
 
-        try {
+            Toast.makeText(
+                    this,
+                    "Allow Display over other apps first.",
+                    Toast.LENGTH_LONG
+            ).show();
 
-            startActivityForResult(
-                    manager.createScreenCaptureIntent(),
-                    REQUEST_CAPTURE
-            );
-
-        } catch (Exception e) {
-
-            toast(
-                    "Screen capture request failed"
-            );
-        }
-    }
-
-    @Override
-    protected void onActivityResult(
-            int request,
-            int result,
-            Intent data
-    ) {
-
-        super.onActivityResult(
-                request,
-                result,
-                data
-        );
-
-        if (
-                request == REQUEST_CAPTURE
-                        && result == RESULT_OK
-                        && data != null
-        ) {
-
-            Intent service =
+            startActivity(
                     new Intent(
-                            this,
-                            ScreenCaptureService.class
-                    );
-
-            service.setAction(
-                    ScreenCaptureService
-                            .ACTION_START_CAPTURE
-            );
-
-            service.putExtra(
-                    "resultCode",
-                    result
-            );
-
-            service.putExtra(
-                    "data",
-                    data
-            );
-
-            startServiceCompat(
-                    service
-            );
-
-            status.setText(
-                    "SCREEN CAPTURE READY • OPEN MARKET"
-            );
-
-            if (
-                    floatingSwitch != null
-            ) {
-
-                floatingSwitch.setChecked(
-                        true
-                );
-            }
-
-        } else if (
-                request == REQUEST_CAPTURE
-        ) {
-
-            toast(
-                    "Screen capture permission cancelled"
-            );
-        }
-    }
-
-    // ============================================================
-    // FLOATING
-    // ============================================================
-
-    private void enableFloating() {
-
-        if (
-                !Settings.canDrawOverlays(
-                        this
-                )
-        ) {
-
-            toast(
-                    "Allow Display over other apps"
-            );
-
-            try {
-
-                startActivity(
-                        new Intent(
-                                Settings
-                                        .ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse(
-                                        "package:"
-                                                + getPackageName()
-                                )
-                        )
-                );
-
-            } catch (Exception ignored) {}
-
-            floatingSwitch.setChecked(
-                    false
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse(
+                                    "package:" +
+                                            getPackageName()
+                            )
+                    )
             );
 
             return;
         }
 
-        if (
-                !ScreenCaptureService
-                        .isCaptureActive()
-        ) {
+        if (!ScreenCaptureService.isCaptureActive()) {
 
-            requestScreenCapture();
-
-            floatingSwitch.setChecked(
-                    false
-            );
+            requestCapture();
 
             return;
         }
 
         startFloatingService();
+
+        status.setText(
+                "SCANNING LIVE â€¢ WAITING FOR STRONG SIGNAL..."
+        );
     }
 
     private void startFloatingService() {
@@ -675,13 +753,47 @@ public class MainActivity extends Activity {
                         FloatingScannerService.class
                 );
 
-        startServiceCompat(
-                intent
+        intent.setAction(
+                FloatingScannerService.ACTION_START_CONTINUOUS
         );
 
-        status.setText(
-                "FLOATING ICON READY • OPEN MARKET"
-        );
+        startServiceCompat(intent);
+    }
+
+    private void enableFloating() {
+
+        if (!Settings.canDrawOverlays(this)) {
+
+            Toast.makeText(
+                    this,
+                    "Allow Display over other apps first.",
+                    Toast.LENGTH_LONG
+            ).show();
+
+            startActivity(
+                    new Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse(
+                                    "package:" +
+                                            getPackageName()
+                            )
+                    )
+            );
+
+            if (floatingSwitch != null) {
+                floatingSwitch.setChecked(false);
+            }
+
+            return;
+        }
+
+        Intent intent =
+                new Intent(
+                        this,
+                        FloatingScannerService.class
+                );
+
+        startServiceCompat(intent);
     }
 
     private void stopFloating() {
@@ -692,15 +804,106 @@ public class MainActivity extends Activity {
                         FloatingScannerService.class
                 )
         );
+    }
 
-        status.setText(
-                "FLOATING SCANNER OFF"
+    private void requestCapture() {
+
+        android.media.projection.MediaProjectionManager manager =
+                (android.media.projection.MediaProjectionManager)
+                        getSystemService(
+                                MEDIA_PROJECTION_SERVICE
+                        );
+
+        if (manager == null) {
+
+            Toast.makeText(
+                    this,
+                    "Screen capture service unavailable.",
+                    Toast.LENGTH_LONG
+            ).show();
+
+            return;
+        }
+
+        startActivityForResult(
+                manager.createScreenCaptureIntent(),
+                REQUEST_CAPTURE
         );
     }
 
-    // ============================================================
-    // UPLOAD
-    // ============================================================
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data) {
+
+        super.onActivityResult(
+                requestCode,
+                resultCode,
+                data
+        );
+
+        if (requestCode == REQUEST_CAPTURE) {
+
+            if (resultCode == RESULT_OK
+                    && data != null) {
+
+                Intent intent =
+                        new Intent(
+                                this,
+                                ScreenCaptureService.class
+                        );
+
+                intent.setAction(
+                        ScreenCaptureService.ACTION_START_CAPTURE
+                );
+
+                intent.putExtra(
+                        "resultCode",
+                        resultCode
+                );
+
+                intent.putExtra(
+                        "data",
+                        data
+                );
+
+                startServiceCompat(intent);
+
+                Toast.makeText(
+                        this,
+                        "Screen capture is ready.",
+                        Toast.LENGTH_SHORT
+                ).show();
+
+                new android.os.Handler()
+                        .postDelayed(
+                                this::startContinuous,
+                                1000
+                        );
+
+            } else {
+
+                if (status != null) {
+
+                    status.setText(
+                            "Screen capture permission cancelled."
+                    );
+                }
+            }
+
+            return;
+        }
+
+        if (requestCode == PICK_IMAGE
+                && resultCode == RESULT_OK
+                && data != null) {
+
+            loadAndAnalyzeImage(
+                    data.getData()
+            );
+        }
+    }
 
     private void pickImage() {
 
@@ -717,594 +920,348 @@ public class MainActivity extends Activity {
                 Intent.CATEGORY_OPENABLE
         );
 
+        startActivityForResult(
+                intent,
+                PICK_IMAGE
+        );
+    }
+
+    private void loadAndAnalyzeImage(
+            Uri uri) {
+
+        if (uri == null) {
+            return;
+        }
+
         try {
 
-            startActivityForResult(
-                    intent,
-                    PICK_IMAGE
-            );
+            InputStream input =
+                    getContentResolver()
+                            .openInputStream(uri);
+
+            Bitmap bitmap =
+                    BitmapFactory.decodeStream(
+                            input
+                    );
+
+            if (input != null) {
+                input.close();
+            }
+
+            if (bitmap == null) {
+
+                throw new IllegalStateException(
+                        "Image could not be decoded."
+                );
+            }
+
+            if (selectedBitmap != null
+                    && !selectedBitmap.isRecycled()) {
+
+                selectedBitmap.recycle();
+            }
+
+            selectedBitmap =
+                    bitmap;
+
+            analyzeSelected();
 
         } catch (Exception e) {
 
-            intent.setAction(
-                    Intent.ACTION_GET_CONTENT
-            );
-
-            startActivityForResult(
-                    intent,
-                    PICK_IMAGE
-            );
+            Toast.makeText(
+                    this,
+                    "Image load failed: " +
+                            e.getMessage(),
+                    Toast.LENGTH_LONG
+            ).show();
         }
     }
 
-    private void loadImage(
-            Uri uri
-    ) {
-
-        status.setText(
-                "LOADING MARKET SCREEN..."
-        );
-
-        executor.execute(
-                () -> {
-
-                    Bitmap bitmap = null;
-
-                    try {
-
-                        InputStream input =
-                                getContentResolver()
-                                        .openInputStream(
-                                                uri
-                                        );
-
-                        bitmap =
-                                BitmapFactory
-                                        .decodeStream(
-                                                input
-                                        );
-
-                        if (input != null) {
-                            input.close();
-                        }
-
-                    } catch (Exception ignored) {}
-
-                    final Bitmap result =
-                            bitmap;
-
-                    runOnUiThread(
-                            () -> {
-
-                                if (
-                                        result == null
-                                ) {
-
-                                    toast(
-                                            "Could not open image"
-                                    );
-
-                                    status.setText(
-                                            "IMAGE ERROR"
-                                    );
-
-                                    return;
-                                }
-
-                                if (
-                                        selectedBitmap != null
-                                                && !selectedBitmap
-                                                .isRecycled()
-                                ) {
-
-                                    selectedBitmap
-                                            .recycle();
-                                }
-
-                                selectedBitmap =
-                                        result;
-
-                                status.setText(
-                                        "MARKET SCREENSHOT READY"
-                                );
-
-                                analyzeSelected();
-                            }
-                    );
-                }
-        );
-    }
-
-    // ============================================================
-    // MANUAL ANALYSIS
-    // ============================================================
-
     private void analyzeSelected() {
 
-        if (
-                selectedBitmap == null
-                        || selectedBitmap.isRecycled()
-        ) {
-
-            toast(
-                    "UPLOAD MARKET SCREENSHOT FIRST"
-            );
+        if (selectedBitmap == null
+                || selectedBitmap.isRecycled()) {
 
             return;
         }
 
+        showScan();
+
         status.setText(
-                "RUNNING 20,000 LOGIC CHECKS..."
+                "ANALYZING CURRENT SCREENSHOT..."
         );
 
-        final Bitmap copy =
+        Bitmap source =
                 selectedBitmap.copy(
                         Bitmap.Config.ARGB_8888,
                         false
                 );
 
-        final String market =
-                selectedMarket();
-
-        final String timeframe =
-                selectedTimeframe();
+        String tf =
+                timeframe();
 
         executor.execute(
                 () -> {
 
                     Analyzer.Result result =
                             Analyzer.analyze(
-                                    copy,
-                                    timeframe
+                                    source,
+                                    tf
                             );
 
-                    if (!copy.isRecycled()) {
-                        copy.recycle();
+                    if (!source.isRecycled()) {
+                        source.recycle();
                     }
 
                     runOnUiThread(
-                            () ->
-                                    showResult(
-                                            result,
-                                            market
-                                    )
+                            () -> {
+
+                                showAnalyzerResult(
+                                        result,
+                                        null
+                                );
+
+                                status.setText(
+                                        result.strongSignal
+                                                ? "STRONG SIGNAL FOUND"
+                                                : "ANALYZED â€¢ WAIT FOR STRONG LIVE AGREEMENT"
+                                );
+                            }
                     );
                 }
         );
     }
 
     private void showResult(
-            Analyzer.Result result,
-            String market
-    ) {
+            Intent intent) {
 
-        StringBuilder text =
-                new StringBuilder();
+        showScan();
 
-        text.append(
-                "ANALYSIS RESULT\n\n"
-        );
+        String s =
+                intent.getStringExtra(
+                        "signal"
+                );
 
-        if (
-                result.strongSignal
-                        && (
-                        "UP".equals(
-                                result.signal
-                        )
-                                || "DOWN".equals(
-                                result.signal
-                        )
-                )
-        ) {
+        float sc =
+                intent.getFloatExtra(
+                        "score",
+                        0f
+                );
 
-            text.append(
-                    result.signal
-            );
+        boolean strong =
+                intent.getBooleanExtra(
+                        "strong",
+                        false
+                );
 
-            text.append(
-                    "  |  "
-            );
-
-            text.append(
-                    String.format(
-                            Locale.US,
-                            "%.0f%% EVIDENCE",
-                            result.confidence
-                    )
-            );
-
-        } else {
-
-            text.append(
-                    "NO STRONG SIGNAL"
-            );
+        if (s == null) {
+            s = "NO SIGNAL";
         }
 
-        text.append(
-                "\n\nMARKET: "
+        signal.setText(
+                "FLOATING ICON"
         );
 
-        text.append(
-                market
+        signal.setTextColor(
+                Color.rgb(70, 190, 255)
         );
 
-        text.append(
-                "\nTIMEFRAME: "
+        score.setText(
+                "FINAL SIGNAL APPEARS ON ICON"
         );
 
-        text.append(
-                result.timeframe
-        );
-
-        text.append(
-                "\n\nCHART DETECTED: "
-        );
-
-        text.append(
-                result.chartDetected
-                        ? "YES"
-                        : "NO"
-        );
-
-        text.append(
-                "\nREAL CANDLES: "
-        );
-
-        text.append(
-                result.detectedCandles
-        );
-
-        text.append(
-                "\nLOGIC CHECKS: "
-        );
-
-        text.append(
-                result.evaluatedRules
-        );
-
-        text.append(
-                "\nQUALITY: "
-        );
-
-        text.append(
-                String.format(
-                        Locale.US,
-                        "%.1f%%",
-                        result.quality
-                )
-        );
-
-        text.append(
-                "\n\nCURRENT CANDLE: "
-        );
-
-        text.append(
-                result.currentCandleColor
-        );
-
-        text.append(
-                "\nCURRENT BODY: "
-        );
-
-        text.append(
-                String.format(
-                        Locale.US,
-                        "%.1f%%",
-                        result.currentBodyRatio
-                )
-        );
-
-        text.append(
-                "\n\nNEXT CANDLE: "
-        );
-
-        text.append(
-                result.nextCandleColor
-        );
-
-        text.append(
-                "\nSIZE: "
-        );
-
-        text.append(
-                result.nextCandleSize
-        );
-
-        text.append(
-                "\nBODY: "
-        );
-
-        text.append(
-                String.format(
-                        Locale.US,
-                        "%.1f%%",
-                        result.nextBodyRatio
-                )
-        );
-
-        text.append(
-                "\n\nCHECKS\n"
-        );
-
-        for (
-                String check :
-                        result.checks
-        ) {
-
-            text.append(
-                    "✓ "
-            );
-
-            text.append(
-                    check
-            );
-
-            text.append(
-                    "\n"
-            );
-        }
-
-        resultText.setText(
-                text.toString()
+        details.setText(
+                "Market: " +
+                        market() +
+                        "\n" +
+                        "Timeframe: " +
+                        timeframe() +
+                        "\n" +
+                        "Signal: " +
+                        s +
+                        "\n" +
+                        "Evidence score: " +
+                        String.format(
+                                java.util.Locale.US,
+                                "%.0f%%",
+                                sc
+                        ) +
+                        "\n" +
+                        "Current candle: " +
+                        intent.getStringExtra(
+                                "currentColor"
+                        ) +
+                        "\n" +
+                        "Next candle may be: " +
+                        intent.getStringExtra(
+                                "nextColor"
+                        ) +
+                        "\n" +
+                        "Expected size: " +
+                        intent.getStringExtra(
+                                "nextSize"
+                        ) +
+                        "\n" +
+                        "Detected candles: " +
+                        intent.getIntExtra(
+                                "candles",
+                                0
+                        ) +
+                        "\n" +
+                        "Logic checks: " +
+                        intent.getIntExtra(
+                                "rules",
+                                0
+                        ) +
+                        "\n" +
+                        "Strong agreement: " +
+                        (strong
+                                ? "YES"
+                                : "NO")
         );
 
         status.setText(
-                result.strongSignal
-                        ? "STRONG SIGNAL READY"
-                        : "NO STRONG SIGNAL"
+                strong
+                        ? "STRONG SIGNAL FOUND â€¢ SCAN STOPPED"
+                        : "SCANNING â€¢ WAITING FOR STRONG AGREEMENT"
         );
     }
 
-    // ============================================================
-    // SETTINGS
-    // ============================================================
+    private void showAnalyzerResult(
+            Analyzer.Result r,
+            Bitmap ignored) {
 
-    private String selectedMarket() {
-
-        if (
-                marketSpinner == null
-        ) {
-
-            return MARKETS[0];
-        }
-
-        return String.valueOf(
-                marketSpinner.getSelectedItem()
-        );
-    }
-
-    private String selectedTimeframe() {
-
-        if (
-                timeframeSpinner == null
-        ) {
-
-            return "1 MIN";
-        }
-
-        return String.valueOf(
-                timeframeSpinner.getSelectedItem()
-        );
-    }
-
-    private void saveSettings() {
-
-        if (
-                marketSpinner == null
-                        || timeframeSpinner == null
-        ) {
+        if (r == null) {
             return;
         }
 
-        getSharedPreferences(
+        signal.setText(
+                "FLOATING ICON"
+        );
+
+        signal.setTextColor(
+                Color.rgb(70, 190, 255)
+        );
+
+        score.setText(
+                "FINAL SIGNAL APPEARS ON ICON"
+        );
+
+        details.setText(
+                "Market: " +
+                        market() +
+                        "\n" +
+                        "Timeframe: " +
+                        timeframe() +
+                        "\n" +
+                        "Signal: " +
+                        r.signal +
+                        "\n" +
+                        "Evidence score: " +
+                        String.format(
+                                java.util.Locale.US,
+                                "%.0f%%",
+                                r.confidence
+                        ) +
+                        "\n" +
+                        "Current candle: " +
+                        r.currentCandleColor +
+                        "\n" +
+                        "Next candle may be: " +
+                        r.nextCandleColor +
+                        "\n" +
+                        "Expected size: " +
+                        r.nextCandleSize +
+                        "\n" +
+                        "Detected candles: " +
+                        r.detectedCandles +
+                        "\n" +
+                        "Logic checks: " +
+                        r.evaluatedRules +
+                        "\n" +
+                        "Strong agreement: " +
+                        (r.strongSignal
+                                ? "YES"
+                                : "NO")
+        );
+    }
+
+    private void chooseMarket() {
+
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Select Market")
+                .setItems(
+                        MARKETS,
+                        (dialog, which) -> {
+
+                            getSharedPreferences(
+                                    PREF,
+                                    0
+                            )
+                                    .edit()
+                                    .putString(
+                                            "market",
+                                            MARKETS[which]
+                                    )
+                                    .apply();
+
+                            showHome();
+                        }
+                )
+                .show();
+    }
+
+    private void chooseTimeframe() {
+
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Select Timeframe")
+                .setItems(
+                        TIMEFRAMES,
+                        (dialog, which) -> {
+
+                            getSharedPreferences(
+                                    PREF,
+                                    0
+                            )
+                                    .edit()
+                                    .putString(
+                                            "timeframe",
+                                            TIMEFRAMES[which]
+                                    )
+                                    .apply();
+
+                            showHome();
+                        }
+                )
+                .show();
+    }
+
+    private String market() {
+
+        return getSharedPreferences(
                 PREF,
-                MODE_PRIVATE
+                0
         )
-                .edit()
-                .putString(
-                        KEY_MARKET,
-                        selectedMarket()
-                )
-                .putString(
-                        KEY_TIMEFRAME,
-                        selectedTimeframe()
-                )
-                .apply();
-    }
-
-    private void restoreSettings() {
-
-        android.content.SharedPreferences preferences =
-                getSharedPreferences(
-                        PREF,
-                        MODE_PRIVATE
+                .getString(
+                        "market",
+                        "USD/BRL (OTC)"
                 );
+    }
 
-        String market =
-                preferences.getString(
-                        KEY_MARKET,
-                        MARKETS[0]
+    private String timeframe() {
+
+        return getSharedPreferences(
+                PREF,
+                0
+        )
+                .getString(
+                        "timeframe",
+                        "1 MIN"
                 );
-
-        String timeframe =
-                preferences.getString(
-                        KEY_TIMEFRAME,
-                        TIMEFRAMES[0]
-                );
-
-        for (
-                int i = 0;
-                i < MARKETS.length;
-                i++
-        ) {
-
-            if (
-                    MARKETS[i].equals(
-                            market
-                    )
-            ) {
-
-                marketSpinner
-                        .setSelection(i);
-
-                break;
-            }
-        }
-
-        for (
-                int i = 0;
-                i < TIMEFRAMES.length;
-                i++
-        ) {
-
-            if (
-                    TIMEFRAMES[i].equals(
-                            timeframe
-                    )
-            ) {
-
-                timeframeSpinner
-                        .setSelection(i);
-
-                break;
-            }
-        }
-    }
-
-    // ============================================================
-    // HELPERS
-    // ============================================================
-
-    private Spinner spinner(
-            String[] values
-    ) {
-
-        Spinner spinner =
-                new Spinner(this);
-
-        ArrayAdapter<String> adapter =
-                new ArrayAdapter<String>(
-                        this,
-                        android.R.layout
-                                .simple_spinner_item,
-                        values
-                ) {
-
-                    @Override
-                    public View getView(
-                            int position,
-                            View convertView,
-                            ViewGroup parent
-                    ) {
-
-                        TextView view =
-                                (TextView)
-                                        super.getView(
-                                                position,
-                                                convertView,
-                                                parent
-                                        );
-
-                        view.setTextColor(
-                                Color.WHITE
-                        );
-
-                        view.setTextSize(
-                                15
-                        );
-
-                        view.setPadding(
-                                dp(8),
-                                0,
-                                dp(8),
-                                0
-                        );
-
-                        return view;
-                    }
-                };
-
-        adapter.setDropDownViewResource(
-                android.R.layout
-                        .simple_spinner_dropdown_item
-        );
-
-        spinner.setAdapter(
-                adapter
-        );
-
-        return spinner;
-    }
-
-    private Button button(
-            String label,
-            int color
-    ) {
-
-        Button button =
-                new Button(this);
-
-        button.setText(
-                label
-        );
-
-        button.setTextColor(
-                Color.WHITE
-        );
-
-        button.setTextSize(
-                15
-        );
-
-        button.setAllCaps(
-                false
-        );
-
-        button.setBackgroundColor(
-                color
-        );
-
-        return button;
-    }
-
-    private TextView text(
-            String label,
-            float size,
-            boolean bold
-    ) {
-
-        TextView view =
-                new TextView(this);
-
-        view.setText(
-                label
-        );
-
-        view.setTextSize(
-                size
-        );
-
-        if (bold) {
-
-            view.setTypeface(
-                    null,
-                    android.graphics.Typeface.BOLD
-            );
-        }
-
-        view.setPadding(
-                0,
-                dp(8),
-                0,
-                dp(8)
-        );
-
-        return view;
     }
 
     private void startServiceCompat(
-            Intent intent
-    ) {
+            Intent intent) {
 
         if (Build.VERSION.SDK_INT >= 26) {
 
@@ -1320,38 +1277,164 @@ public class MainActivity extends Activity {
         }
     }
 
-    private int dp(
-            int value
-    ) {
+    private TextView label(
+            String textValue) {
 
-        return Math.round(
-                value
-                        * getResources()
-                        .getDisplayMetrics()
-                        .density
+        TextView t =
+                text(
+                        textValue,
+                        12,
+                        true
+                );
+
+        t.setTextColor(
+                Color.rgb(
+                        60,
+                        235,
+                        160
+                )
+        );
+
+        t.setPadding(
+                0,
+                dp(14),
+                0,
+                dp(6)
+        );
+
+        return t;
+    }
+
+    private Button primary(
+            String textValue) {
+
+        return button(
+                textValue,
+                true
         );
     }
 
-    private void toast(
-            String message
-    ) {
+    private Button button(
+            String textValue,
+            boolean primary) {
 
-        Toast.makeText(
-                this,
-                message,
-                Toast.LENGTH_SHORT
-        ).show();
+        Button b =
+                new Button(this);
+
+        b.setText(
+                textValue
+        );
+
+        b.setTextSize(
+                13
+        );
+
+        b.setAllCaps(
+                false
+        );
+
+        b.setTextColor(
+                Color.WHITE
+        );
+
+        b.setGravity(
+                Gravity.CENTER
+        );
+
+        b.setBackgroundColor(
+                primary
+                        ? Color.rgb(
+                                0,
+                                150,
+                                230
+                        )
+                        : Color.rgb(
+                                10,
+                                28,
+                                42
+                        )
+        );
+
+        return b;
+    }
+
+    private TextView text(
+            String value,
+            float size,
+            boolean bold) {
+
+        TextView t =
+                new TextView(this);
+
+        t.setText(
+                value
+        );
+
+        t.setTextSize(
+                size
+        );
+
+        if (bold) {
+
+            t.setTypeface(
+                    android.graphics.Typeface.DEFAULT,
+                    android.graphics.Typeface.BOLD
+            );
+        }
+
+        return t;
+    }
+
+    private LinearLayout.LayoutParams lp(
+            int width,
+            int height) {
+
+        return new LinearLayout.LayoutParams(
+                width,
+                height
+        );
+    }
+
+    private LinearLayout.LayoutParams lp(
+            int width,
+            int height,
+            float weight) {
+
+        return new LinearLayout.LayoutParams(
+                width,
+                height,
+                weight
+        );
+    }
+
+    private int dp(
+            int value) {
+
+        return (int) (
+                value *
+                        getResources()
+                                .getDisplayMetrics()
+                                .density
+                        + 0.5f
+        );
     }
 
     @Override
     protected void onDestroy() {
 
+        try {
+
+            unregisterReceiver(
+                    receiver
+            );
+
+        } catch (Exception ignored) {
+        }
+
         executor.shutdownNow();
 
-        if (
-                selectedBitmap != null
-                        && !selectedBitmap.isRecycled()
-        ) {
+        if (selectedBitmap != null
+                && !selectedBitmap.isRecycled()) {
 
             selectedBitmap.recycle();
         }
