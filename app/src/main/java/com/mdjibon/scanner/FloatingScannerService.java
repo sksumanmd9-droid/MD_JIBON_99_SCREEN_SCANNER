@@ -540,6 +540,7 @@ public class FloatingScannerService extends Service {
          */
         loop = null;
         requestOneScan();
+    }
 
     // ============================================================
     // ONE SCAN
@@ -1666,5 +1667,4 @@ public class FloatingScannerService extends Service {
             super.onDetachedFromWindow();
         }
     }
-}
 }
