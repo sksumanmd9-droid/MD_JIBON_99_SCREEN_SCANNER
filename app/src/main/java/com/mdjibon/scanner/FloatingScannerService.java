@@ -283,7 +283,7 @@ public class FloatingScannerService extends Service {
                                 hideBadge();
                             } else if (continuous) {
                                 handler.postDelayed(
-                                        this::requestOneScan,
+                                        FloatingScannerService.this::requestOneScan,
                                         SCAN_INTERVAL_MS
                                 );
                             }
