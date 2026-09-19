@@ -233,13 +233,8 @@ public class ScreenCaptureService extends Service {
                 try {
                     clean = source.copy(Bitmap.Config.ARGB_8888, true);
                     Canvas canvas = new Canvas(clean);
-                    canvas.drawColor(Color.TRANSPARENT,
-                            android.graphics.PorterDuff.Mode.CLEAR);
-
-                    // Restore the original image first, then paint only the
-                    // exclusion rectangle with the chart background color.
-                    canvas.drawBitmap(source, 0, 0, null);
-                    android.graphics.Paint p = new android.graphics.Paint();
+                    android.graphics.Paint p = new android.graphics.Paint(
+                            android.graphics.Paint.ANTI_ALIAS_FLAG);
                     p.setColor(Color.rgb(5, 10, 20));
                     canvas.drawRect(excludeX, excludeY,
                             excludeX + excludeW, excludeY + excludeH, p);
