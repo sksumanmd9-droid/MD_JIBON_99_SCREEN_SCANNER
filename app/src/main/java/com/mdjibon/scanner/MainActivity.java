@@ -474,25 +474,10 @@ public class MainActivity extends Activity {
                 lp(-1, dp(64))
         );
 
-        Button upload =
-                button(
-                        "ANALYZE CURRENT/UPLOADED SCREENSHOT",
-                        false
-                );
-
-        upload.setOnClickListener(
-                v -> pickImage()
-        );
-
-        content.addView(
-                upload,
-                lp(-1, dp(58))
-        );
-
         TextView info =
                 text(
-                        "à¦¸à§à¦•à§à¦¯à¦¾à¦¨ à¦¶à§à¦°à§ à¦¹à¦²à§‡ à¦ªà§à¦°à§‹ à¦¡à¦¿à¦¸à¦ªà§à¦²à§‡à¦° à¦‰à¦ªà¦° à¦¨à§€à¦² translucent scan layer à¦‰à¦ªà¦° à¦¥à§‡à¦•à§‡ à¦¨à¦¿à¦šà§‡ sweep à¦•à¦°à¦¬à§‡à¥¤ " +
-                        "à¦¬à¦°à§à¦¤à¦®à¦¾à¦¨ screen à¦¬à¦¾à¦°à¦¬à¦¾à¦° analyse à¦¹à¦¬à§‡à¥¤ à¦¶à¦•à§à¦¤à¦¿à¦¶à¦¾à¦²à§€ agreement à¦¨à¦¾ à¦ªà¦¾à¦“à§Ÿà¦¾ à¦ªà¦°à§à¦¯à¦¨à§à¦¤ UP/DOWN final à¦˜à§‹à¦·à¦£à¦¾ à¦¹à¦¬à§‡ à¦¨à¦¾à¥¤ " +
+                        "à¦¸à§à¦•à§à¦¯à¦¾à¦¨ à¦¶à§à¦°à§ à¦¹à¦²à§‡ à¦¬à¦°à§à¦¤à¦®à¦¾à¦¨ à¦®à¦¾à¦°à§à¦•à§‡à¦Ÿ à¦šà¦¾à¦°à§à¦Ÿà§‡à¦° à¦‰à¦ªà¦° à¦¨à§€à¦² scan overlay à¦¦à§‡à¦–à¦¾ à¦¯à¦¾à¦¬à§‡à¥¤ " +
+                        "à¦¬à¦¿à¦¶à§à¦²à§‡à¦·à¦£ à¦¶à§‡à¦· à¦¹à¦²à§‡ à¦«à¦²à¦¾à¦«à¦² à¦¶à§à¦§à§ à¦›à§‹à¦Ÿ Floating Icon-à¦à¦° à¦­à¦¿à¦¤à¦°à§‡ à¦¦à§‡à¦–à¦¾à¦¬à§‡à¥¤ " +
                         "à¦•à§‹à¦¨à§‹ automatic trade à¦¬à¦¾ order action à¦¨à§‡à¦‡à¥¤",
                         13,
                         false
@@ -523,7 +508,7 @@ public class MainActivity extends Activity {
 
         content.setPadding(
                 dp(16),
-                dp(8),
+                dp(18),
                 dp(16),
                 dp(18)
         );
@@ -531,90 +516,36 @@ public class MainActivity extends Activity {
         status =
                 text(
                         "READY",
-                        17,
+                        18,
                         true
                 );
 
+        status.setGravity(Gravity.CENTER);
         status.setTextColor(
                 Color.rgb(65, 240, 165)
         );
 
         content.addView(
                 status,
-                lp(-1, dp(55))
-        );
-
-        preview =
-                new ImageView(this);
-
-        preview.setScaleType(
-                ImageView.ScaleType.CENTER_INSIDE
-        );
-
-        preview.setBackgroundColor(
-                Color.rgb(7, 15, 25)
-        );
-
-        content.addView(
-                preview,
-                lp(-1, dp(285))
-        );
-
-        signal =
-                text(
-                        "FLOATING ICON",
-                        28,
-                        true
-                );
-
-        signal.setGravity(
-                Gravity.CENTER
-        );
-
-        signal.setTextColor(
-                Color.rgb(70, 190, 255)
-        );
-
-        content.addView(
-                signal,
                 lp(-1, dp(70))
         );
 
-        score =
+        TextView info =
                 text(
-                        "FINAL SIGNAL APPEARS ONLY AFTER STRONG ANALYSIS",
-                        13,
-                        true
-                );
-
-        score.setGravity(
-                Gravity.CENTER
-        );
-
-        score.setTextColor(
-                Color.rgb(120, 180, 220)
-        );
-
-        content.addView(
-                score,
-                lp(-1, dp(54))
-        );
-
-        details =
-                text(
-                        "Current screen analysis only.\n" +
-                                "No historical results are kept inside the app.",
-                        14,
+                        "FLOATING SCANNER ACTIVE\n" +
+                                "Return to the market chart after starting the scan.\n\n" +
+                                "The floating icon shows SCAN, UP/DOWN and the evidence percentage.\n" +
+                                "No result is displayed in this page.",
+                        15,
                         false
                 );
 
-        details.setTextColor(
-                Color.LTGRAY
-        );
+        info.setGravity(Gravity.CENTER);
+        info.setTextColor(Color.LTGRAY);
 
         content.addView(
-                details,
-                lp(-1, dp(120))
+                info,
+                lp(-1, dp(220))
         );
 
         Button b =
@@ -741,7 +672,18 @@ public class MainActivity extends Activity {
         startFloatingService();
 
         status.setText(
-                "SCANNING LIVE â€¢ WAITING FOR STRONG SIGNAL..."
+                "SCANNING LIVE â€¢ RETURNING TO MARKET..."
+        );
+
+        // The live scanner must analyze the trading/chart app, not MD JIBON's
+        // own UI. Send this activity to the background after the capture and
+        // floating service are ready, leaving the previously visible market app
+        // in the foreground.
+        new android.os.Handler(
+                android.os.Looper.getMainLooper()
+        ).postDelayed(
+                () -> moveTaskToBack(true),
+                350
         );
     }
 
@@ -1035,18 +977,9 @@ public class MainActivity extends Activity {
     private void showResult(
             Intent intent) {
 
-        showScan();
-
-        String s =
-                intent.getStringExtra(
-                        "signal"
-                );
-
-        float sc =
-                intent.getFloatExtra(
-                        "score",
-                        0f
-                );
+        if (status == null) {
+            return;
+        }
 
         boolean strong =
                 intent.getBooleanExtra(
@@ -1054,76 +987,10 @@ public class MainActivity extends Activity {
                         false
                 );
 
-        if (s == null) {
-            s = "NO SIGNAL";
-        }
-
-        signal.setText(
-                "FLOATING ICON"
-        );
-
-        signal.setTextColor(
-                Color.rgb(70, 190, 255)
-        );
-
-        score.setText(
-                "FINAL SIGNAL APPEARS ON ICON"
-        );
-
-        details.setText(
-                "Market: " +
-                        market() +
-                        "\n" +
-                        "Timeframe: " +
-                        timeframe() +
-                        "\n" +
-                        "Signal: " +
-                        s +
-                        "\n" +
-                        "Evidence score: " +
-                        String.format(
-                                java.util.Locale.US,
-                                "%.0f%%",
-                                sc
-                        ) +
-                        "\n" +
-                        "Current candle: " +
-                        intent.getStringExtra(
-                                "currentColor"
-                        ) +
-                        "\n" +
-                        "Next candle may be: " +
-                        intent.getStringExtra(
-                                "nextColor"
-                        ) +
-                        "\n" +
-                        "Expected size: " +
-                        intent.getStringExtra(
-                                "nextSize"
-                        ) +
-                        "\n" +
-                        "Detected candles: " +
-                        intent.getIntExtra(
-                                "candles",
-                                0
-                        ) +
-                        "\n" +
-                        "Logic checks: " +
-                        intent.getIntExtra(
-                                "rules",
-                                0
-                        ) +
-                        "\n" +
-                        "Strong agreement: " +
-                        (strong
-                                ? "YES"
-                                : "NO")
-        );
-
         status.setText(
                 strong
-                        ? "STRONG SIGNAL FOUND â€¢ SCAN STOPPED"
-                        : "SCANNING â€¢ WAITING FOR STRONG AGREEMENT"
+                        ? "STRONG SIGNAL FOUND â€¢ RESULT IS ON FLOATING ICON"
+                        : "SCAN COMPLETE â€¢ WAITING FOR STRONG AGREEMENT"
         );
     }
 
@@ -1131,58 +998,14 @@ public class MainActivity extends Activity {
             Analyzer.Result r,
             Bitmap ignored) {
 
-        if (r == null) {
+        if (status == null || r == null) {
             return;
         }
 
-        signal.setText(
-                "FLOATING ICON"
-        );
-
-        signal.setTextColor(
-                Color.rgb(70, 190, 255)
-        );
-
-        score.setText(
-                "FINAL SIGNAL APPEARS ON ICON"
-        );
-
-        details.setText(
-                "Market: " +
-                        market() +
-                        "\n" +
-                        "Timeframe: " +
-                        timeframe() +
-                        "\n" +
-                        "Signal: " +
-                        r.signal +
-                        "\n" +
-                        "Evidence score: " +
-                        String.format(
-                                java.util.Locale.US,
-                                "%.0f%%",
-                                r.confidence
-                        ) +
-                        "\n" +
-                        "Current candle: " +
-                        r.currentCandleColor +
-                        "\n" +
-                        "Next candle may be: " +
-                        r.nextCandleColor +
-                        "\n" +
-                        "Expected size: " +
-                        r.nextCandleSize +
-                        "\n" +
-                        "Detected candles: " +
-                        r.detectedCandles +
-                        "\n" +
-                        "Logic checks: " +
-                        r.evaluatedRules +
-                        "\n" +
-                        "Strong agreement: " +
-                        (r.strongSignal
-                                ? "YES"
-                                : "NO")
+        status.setText(
+                r.strongSignal
+                        ? "STRONG SIGNAL FOUND â€¢ RESULT IS ON FLOATING ICON"
+                        : "ANALYZED â€¢ WAIT FOR STRONG LIVE AGREEMENT"
         );
     }
 
