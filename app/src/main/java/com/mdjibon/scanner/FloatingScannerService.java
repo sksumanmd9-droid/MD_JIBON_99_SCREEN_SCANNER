@@ -51,7 +51,6 @@ public class FloatingScannerService extends Service {
 
     private static final long SIGNAL_COOLDOWN_MS = 2500L;
     private static final long SCAN_INTERVAL_MS = 2600L;
-    private static final long OVERLAY_MS = 1450L;
 
     // ============================================================
     // RUNNING
@@ -124,15 +123,15 @@ public class FloatingScannerService extends Service {
     // ============================================================
 
     private int iconSize() {
-        return dp(56);
+        return dp(54);
     }
 
     private int normalBubbleWidth() {
-        return dp(60);
+        return dp(58);
     }
 
     private int bubbleHeight() {
-        return dp(60);
+        return dp(58);
     }
 
     // ============================================================
@@ -627,12 +626,10 @@ public class FloatingScannerService extends Service {
             return;
         }
 
-        showScanOverlay();
-
-        handler.postDelayed(
-                this::hideScanOverlay,
-                OVERLAY_MS
-        );
+        // The scan overlay is intentionally NOT shown here.
+        // ScreenCaptureService first copies the latest clean frame and then
+        // broadcasts ACTION_SCAN_STATUS("working"). This prevents the blue
+        // overlay itself from being captured and analyzed as part of the chart.
     }
 
     // ============================================================
@@ -1055,6 +1052,8 @@ public class FloatingScannerService extends Service {
 
         badge.setBackground(bg);
         badge.setTextColor(Color.WHITE);
+        if (icon != null) icon.setVisibility(View.INVISIBLE);
+        badge.bringToFront();
         badge.setVisibility(View.VISIBLE);
 
         // Keep the floating window small; the result is INSIDE the icon.
@@ -1089,6 +1088,8 @@ public class FloatingScannerService extends Service {
 
         badge.setBackground(bg);
         badge.setTextColor(Color.rgb(150, 225, 255));
+        if (icon != null) icon.setVisibility(View.INVISIBLE);
+        badge.bringToFront();
         badge.setVisibility(View.VISIBLE);
 
         params.width = normalBubbleWidth();
@@ -1108,6 +1109,10 @@ public class FloatingScannerService extends Service {
 
         if (badge != null) {
             badge.setVisibility(View.GONE);
+        }
+
+        if (icon != null) {
+            icon.setVisibility(View.VISIBLE);
         }
 
         if (params != null && bubble != null) {
