@@ -263,6 +263,12 @@ public class FloatingScannerService extends Service {
                         }
 
                         if (signal == null) {
+                            if (continuous && scanCount < MAX_SCANS) {
+                                handler.postDelayed(
+                                        FloatingScannerService.this::requestOneScan,
+                                        SCAN_INTERVAL_MS
+                                );
+                            }
                             return;
                         }
 
@@ -283,7 +289,7 @@ public class FloatingScannerService extends Service {
                                 hideBadge();
                             } else if (continuous) {
                                 handler.postDelayed(
-                                        this::requestOneScan,
+                                        FloatingScannerService.this::requestOneScan,
                                         SCAN_INTERVAL_MS
                                 );
                             }
@@ -352,7 +358,7 @@ public class FloatingScannerService extends Service {
                                                 "%.0f%%",
                                                 score
                                         )
-                                                + " â€¢ SCAN STOPPED",
+                                                + " Ã¢â‚¬Â¢ SCAN STOPPED",
                                         Toast.LENGTH_LONG
                                 ).show();
 
@@ -375,7 +381,7 @@ public class FloatingScannerService extends Service {
 
                             Toast.makeText(
                                     FloatingScannerService.this,
-                                    "NO STRONG SIGNAL â€¢ 5 SCANS COMPLETED",
+                                    "NO STRONG SIGNAL Ã¢â‚¬Â¢ 5 SCANS COMPLETED",
                                     Toast.LENGTH_SHORT
                             ).show();
                         }
@@ -1077,7 +1083,7 @@ public class FloatingScannerService extends Service {
             return;
         }
 
-        badge.setText("SCAN\nâ€¦");
+        badge.setText("SCAN\nÃ¢â‚¬Â¦");
         badge.setTextSize(9);
         badge.setTypeface(null, android.graphics.Typeface.BOLD);
 
